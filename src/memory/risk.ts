@@ -78,7 +78,9 @@ export function parseRiskMetadataRow(row: {
     score:
       typeof row.risk_score === "number"
         ? row.risk_score
-        : Number.parseInt(String(row.risk_score ?? 0), 10) || 0,
+        : typeof row.risk_score === "string"
+          ? Number.parseInt(row.risk_score, 10) || 0
+          : 0,
     classesMatched: parseRiskClasses(classesRaw),
     patternsTop: Array.isArray(patternsRaw)
       ? patternsRaw.filter((entry): entry is string => typeof entry === "string").slice(0, 10)
@@ -86,7 +88,9 @@ export function parseRiskMetadataRow(row: {
     encodedMatches:
       typeof row.risk_encoded_matches === "number"
         ? row.risk_encoded_matches
-        : Number.parseInt(String(row.risk_encoded_matches ?? 0), 10) || 0,
+        : typeof row.risk_encoded_matches === "string"
+          ? Number.parseInt(row.risk_encoded_matches, 10) || 0
+          : 0,
   };
 }
 
@@ -100,7 +104,11 @@ export function coerceRiskMetadata(raw: {
   return {
     riskLevel: parseRiskLevel(raw.riskLevel),
     score:
-      typeof raw.score === "number" ? raw.score : Number.parseInt(String(raw.score ?? 0), 10) || 0,
+      typeof raw.score === "number"
+        ? raw.score
+        : typeof raw.score === "string"
+          ? Number.parseInt(raw.score, 10) || 0
+          : 0,
     classesMatched: parseRiskClasses(raw.classesMatched),
     patternsTop: Array.isArray(raw.patternsTop)
       ? raw.patternsTop.filter((entry): entry is string => typeof entry === "string").slice(0, 10)
@@ -108,7 +116,9 @@ export function coerceRiskMetadata(raw: {
     encodedMatches:
       typeof raw.encodedMatches === "number"
         ? raw.encodedMatches
-        : Number.parseInt(String(raw.encodedMatches ?? 0), 10) || 0,
+        : typeof raw.encodedMatches === "string"
+          ? Number.parseInt(raw.encodedMatches, 10) || 0
+          : 0,
   };
 }
 
