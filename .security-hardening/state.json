@@ -1,0 +1,64 @@
+{
+  "target": "Implement SECURITY_REMEDIATION_PLAN.md - Comprehensive security hardening for AI agent ecosystem",
+  "status": "in_progress",
+  "depth": "comprehensive",
+  "compliance_frameworks": ["owasp"],
+  "current_step": "checkpoint-4",
+  "current_phase": 4,
+  "completed_phases": [1, 2, 3],
+  "completed_steps": [1, 2, 3, 4, 5, 6, 7, 8],
+  "policy_source": "SECURITY.md",
+  "policy_strategy": "SECURITY.md is canonical; controls are mapped to execution ownership in steps 01-08.",
+  "policy_crosswalk": {
+    "01": ["Security Scanning", "Runtime Requirements > Node.js Version", "Out of Scope"],
+    "02": ["Operational Guidance > Web Interface Safety", "Required in Reports", "Out of Scope"],
+    "03": [
+      "Operational Guidance > Tool filesystem hardening",
+      "Operational Guidance > Web Interface Safety",
+      "Security & Trust"
+    ],
+    "04": ["Required in Reports", "Security Scanning", "Runtime Requirements > Node.js Version"],
+    "05": [
+      "Operational Guidance > Tool filesystem hardening",
+      "Security Scanning",
+      "Maintainers: GHSA Updates via CLI"
+    ],
+    "06": [
+      "Runtime Requirements > Docker Security",
+      "Runtime Requirements > Node.js Version",
+      "Operational Guidance > Web Interface Safety"
+    ],
+    "07": ["Reporting", "Required in Reports", "Security & Trust"],
+    "08": ["Security Policy", "Operational Guidance > Web Interface Safety", "Security Scanning"]
+  },
+  "files_created": [
+    "01-vulnerability-scan.md",
+    "02-threat-model.md",
+    "03-architecture-review.md",
+    "04-critical-fixes.md",
+    "05-backend-hardening.md",
+    "06-container-security.md",
+    "07-threat-model-phase2.md",
+    "08-threat-model-executive-summary.md",
+    "docker/seccomp/openclaw-strict.json",
+    "src/security/container-monitor.ts"
+  ],
+  "files_modified": [
+    "src/security/skill-scanner.ts",
+    "src/security/skill-scanner.test.ts",
+    "src/plugins/install.ts",
+    "src/plugins/install.test.ts",
+    "src/config/types.plugins.ts",
+    "src/cli/plugins-cli.ts",
+    "src/commands/onboarding/plugin-install.ts",
+    "src/plugins/update.ts",
+    "src/agents/sandbox/constants.ts",
+    "src/agents/sandbox/config.ts",
+    ".security-hardening/04-critical-fixes.md",
+    "src/security/container-monitor.ts"
+  ],
+  "started_at": "2026-02-10T00:30:00Z",
+  "last_updated": "2026-02-16T21:49:00Z",
+  "tests_passing": true,
+  "test_count": 122
+}
