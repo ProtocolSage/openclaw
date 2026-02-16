@@ -38,6 +38,7 @@ describe("memory index", () => {
   let indexVectorPath = "";
   let indexMainPath = "";
   let indexExtraPath = "";
+  let indexPath = "";
 
   // Perf: keep managers open across tests, but only reset the one a test uses.
   const managersByStorePath = new Map<string, MemoryIndexManager>();
@@ -51,6 +52,7 @@ describe("memory index", () => {
     indexMainPath = path.join(workspaceDir, "index-main.sqlite");
     indexVectorPath = path.join(workspaceDir, "index-vector.sqlite");
     indexExtraPath = path.join(workspaceDir, "index-extra.sqlite");
+    indexPath = path.join(workspaceDir, "index-injection.sqlite");
 
     await fs.mkdir(memoryDir, { recursive: true });
     await fs.writeFile(
@@ -358,14 +360,15 @@ describe("memory index", () => {
     if (!result.manager) {
       throw new Error("manager missing");
     }
-    manager = result.manager;
+    const manager = result.manager;
+    managersForCleanup.add(manager as MemoryIndexManager);
 
-    await expect(result.manager.readFile({ relPath: "memory/poison.md" })).rejects.toThrow(
+    await expect(manager.readFile({ relPath: "memory/poison.md" })).rejects.toThrow(
       "critical security risk patterns detected",
     );
 
     await expect(
-      result.manager.readFile({ relPath: "memory/poison.md", allowUntrusted: true }),
+      manager.readFile({ relPath: "memory/poison.md", allowUntrusted: true }),
     ).resolves.toEqual(
       expect.objectContaining({
         path: "memory/poison.md",
@@ -404,7 +407,8 @@ describe("memory index", () => {
     if (!result.manager) {
       throw new Error("manager missing");
     }
-    manager = result.manager;
+    const manager = result.manager;
+    managersForCleanup.add(manager as MemoryIndexManager);
     await manager.sync?.({ force: true });
 
     const safe = await manager.search("poisonneedle", { maxResults: 5 });

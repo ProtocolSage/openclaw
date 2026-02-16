@@ -63,6 +63,7 @@ export class QmdMemoryManager implements MemorySearchManager {
     cfg: OpenClawConfig;
     agentId: string;
     resolved: ResolvedMemoryBackendConfig;
+    mode?: "status" | "full";
   }): Promise<QmdMemoryManager | null> {
     const resolved = params.resolved.qmd;
     if (!resolved) {

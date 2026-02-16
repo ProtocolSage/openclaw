@@ -180,8 +180,9 @@ export class MemoryIndexManager implements MemorySearchManager {
   static async get(params: {
     cfg: OpenClawConfig;
     agentId: string;
+    purpose?: "default" | "status";
   }): Promise<MemoryIndexManager | null> {
-    const { cfg, agentId } = params;
+    const { cfg, agentId, purpose } = params;
     const settings = resolveMemorySearchConfig(cfg, agentId);
     if (!settings) {
       return null;
@@ -208,6 +209,7 @@ export class MemoryIndexManager implements MemorySearchManager {
       workspaceDir,
       settings,
       providerResult,
+      purpose,
     });
     INDEX_CACHE.set(key, manager);
     return manager;
@@ -220,6 +222,7 @@ export class MemoryIndexManager implements MemorySearchManager {
     workspaceDir: string;
     settings: ResolvedMemorySearchConfig;
     providerResult: EmbeddingProviderResult;
+    purpose?: "default" | "status";
   }) {
     this.cacheKey = params.cacheKey;
     this.cfg = params.cfg;
@@ -254,7 +257,9 @@ export class MemoryIndexManager implements MemorySearchManager {
     this.ensureWatcher();
     this.ensureSessionListener();
     this.ensureIntervalSync();
-    this.dirty = this.sources.has("memory");
+    // Status-only managers should not report dirty on creation — they're read-only
+    // and should reflect the actual persisted state (clean after prior indexing).
+    this.dirty = params.purpose !== "status" && this.sources.has("memory");
     this.batch = this.resolveBatchConfig();
   }
 

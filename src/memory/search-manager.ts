@@ -65,7 +65,11 @@ export async function getMemorySearchManager(params: {
 
   try {
     const { MemoryIndexManager } = await import("./manager.js");
-    const manager = await MemoryIndexManager.get(params);
+    const manager = await MemoryIndexManager.get({
+      cfg: params.cfg,
+      agentId: params.agentId,
+      purpose: params.purpose,
+    });
     return { manager };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

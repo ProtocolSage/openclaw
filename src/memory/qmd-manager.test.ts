@@ -56,7 +56,19 @@ vi.mock("../logging/subsystem.js", () => ({
   },
 }));
 
-vi.mock("node:child_process", () => ({ spawn: vi.fn() }));
+vi.mock("node:child_process", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:child_process")>();
+  return {
+    ...actual,
+    spawn: vi.fn(),
+    execFile: vi.fn((...args: unknown[]) => {
+      const cb = args[args.length - 1];
+      if (typeof cb === "function") {
+        (cb as (err: null, stdout: string, stderr: string) => void)(null, "", "");
+      }
+    }),
+  };
+});
 
 import { spawn as mockedSpawn } from "node:child_process";
 import type { OpenClawConfig } from "../config/config.js";
@@ -526,7 +538,7 @@ describe("QmdMemoryManager", () => {
 
     const textPath = path.join(workspaceDir, "secret.txt");
     await fs.writeFile(textPath, "nope", "utf-8");
-    await expect(manager.readFile({ relPath: "qmd/workspace/secret.txt" })).rejects.toThrow(
+    await expect(manager.readFile({ relPath: "qmd/workspace-main/secret.txt" })).rejects.toThrow(
       "path required",
     );
 
@@ -534,7 +546,7 @@ describe("QmdMemoryManager", () => {
     await fs.writeFile(target, "ok", "utf-8");
     const link = path.join(workspaceDir, "link.md");
     await fs.symlink(target, link);
-    await expect(manager.readFile({ relPath: "qmd/workspace/link.md" })).rejects.toThrow(
+    await expect(manager.readFile({ relPath: "qmd/workspace-main/link.md" })).rejects.toThrow(
       "path required",
     );
 
@@ -562,22 +574,22 @@ describe("QmdMemoryManager", () => {
     );
 
     logWarnMock.mockClear();
-    await expect(manager.readFile({ relPath: "qmd/workspace/poison.md" })).rejects.toThrow(
+    await expect(manager.readFile({ relPath: "qmd/workspace-main/poison.md" })).rejects.toThrow(
       "critical security risk patterns detected",
     );
     expect(logWarnMock).toHaveBeenCalledWith(
       "memory read blocked: critical prompt-injection patterns detected",
       expect.objectContaining({
-        relPath: "qmd/workspace/poison.md",
+        relPath: "qmd/workspace-main/poison.md",
         riskLevel: "critical",
       }),
     );
 
     await expect(
-      manager.readFile({ relPath: "qmd/workspace/poison.md", allowUntrusted: true }),
+      manager.readFile({ relPath: "qmd/workspace-main/poison.md", allowUntrusted: true }),
     ).resolves.toEqual(
       expect.objectContaining({
-        path: "qmd/workspace/poison.md",
+        path: "qmd/workspace-main/poison.md",
         warnings: [expect.stringContaining("CRITICAL: prompt-injection patterns detected")],
       }),
     );
