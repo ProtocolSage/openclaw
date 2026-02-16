@@ -75,6 +75,11 @@ export function ensureMemoryIndexSchema(params: {
   }
 
   ensureColumn(params.db, "files", "source", "TEXT NOT NULL DEFAULT 'memory'");
+  ensureColumn(params.db, "files", "risk_level", "TEXT NOT NULL DEFAULT 'low'");
+  ensureColumn(params.db, "files", "risk_score", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(params.db, "files", "risk_classes", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(params.db, "files", "risk_patterns", "TEXT NOT NULL DEFAULT '[]'");
+  ensureColumn(params.db, "files", "risk_encoded_matches", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(params.db, "chunks", "source", "TEXT NOT NULL DEFAULT 'memory'");
   params.db.exec(`CREATE INDEX IF NOT EXISTS idx_chunks_path ON chunks(path);`);
   params.db.exec(`CREATE INDEX IF NOT EXISTS idx_chunks_source ON chunks(source);`);

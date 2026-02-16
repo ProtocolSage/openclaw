@@ -2,6 +2,7 @@ import type { OpenClawConfig } from "../config/config.js";
 import type { ResolvedQmdConfig } from "./backend-config.js";
 import type {
   MemoryEmbeddingProbeResult,
+  MemorySearchOptions,
   MemorySearchManager,
   MemorySyncProgressUpdate,
 } from "./types.js";
@@ -86,10 +87,7 @@ class FallbackMemoryManager implements MemorySearchManager {
     private readonly onClose?: () => void,
   ) {}
 
-  async search(
-    query: string,
-    opts?: { maxResults?: number; minScore?: number; sessionKey?: string },
-  ) {
+  async search(query: string, opts?: MemorySearchOptions) {
     if (!this.primaryFailed) {
       try {
         return await this.deps.primary.search(query, opts);
@@ -109,7 +107,12 @@ class FallbackMemoryManager implements MemorySearchManager {
     throw new Error(this.lastError ?? "memory search unavailable");
   }
 
-  async readFile(params: { relPath: string; from?: number; lines?: number }) {
+  async readFile(params: {
+    relPath: string;
+    from?: number;
+    lines?: number;
+    allowUntrusted?: boolean;
+  }) {
     if (!this.primaryFailed) {
       return await this.deps.primary.readFile(params);
     }

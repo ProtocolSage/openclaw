@@ -14,12 +14,14 @@ const MemorySearchSchema = Type.Object({
   query: Type.String(),
   maxResults: Type.Optional(Type.Number()),
   minScore: Type.Optional(Type.Number()),
+  allowUntrusted: Type.Optional(Type.Boolean()),
 });
 
 const MemoryGetSchema = Type.Object({
   path: Type.String(),
   from: Type.Optional(Type.Number()),
   lines: Type.Optional(Type.Number()),
+  allowUntrusted: Type.Optional(Type.Boolean()),
 });
 
 function resolveMemoryToolContext(options: { config?: OpenClawConfig; agentSessionKey?: string }) {
@@ -56,6 +58,8 @@ export function createMemorySearchTool(options: {
       const query = readStringParam(params, "query", { required: true });
       const maxResults = readNumberParam(params, "maxResults");
       const minScore = readNumberParam(params, "minScore");
+      const allowUntrusted =
+        typeof params.allowUntrusted === "boolean" ? params.allowUntrusted : undefined;
       const { manager, error } = await getMemorySearchManager({
         cfg,
         agentId,
@@ -73,6 +77,7 @@ export function createMemorySearchTool(options: {
           maxResults,
           minScore,
           sessionKey: options.agentSessionKey,
+          allowUntrusted,
         });
         const status = manager.status();
         const decorated = decorateCitations(rawResults, includeCitations);
@@ -115,6 +120,8 @@ export function createMemoryGetTool(options: {
       const relPath = readStringParam(params, "path", { required: true });
       const from = readNumberParam(params, "from", { integer: true });
       const lines = readNumberParam(params, "lines", { integer: true });
+      const allowUntrusted =
+        typeof params.allowUntrusted === "boolean" ? params.allowUntrusted : undefined;
       const { manager, error } = await getMemorySearchManager({
         cfg,
         agentId,
@@ -127,6 +134,7 @@ export function createMemoryGetTool(options: {
           relPath,
           from: from ?? undefined,
           lines: lines ?? undefined,
+          allowUntrusted,
         });
         return jsonResult(result);
       } catch (err) {

@@ -1,5 +1,23 @@
 export type MemorySource = "memory" | "sessions";
 
+export type MemoryRiskLevel = "low" | "medium" | "high" | "critical";
+
+export type MemoryRiskClass =
+  | "role_confusion"
+  | "instruction_override"
+  | "tool_invocation"
+  | "exfiltration"
+  | "privilege_escalation"
+  | "encoding";
+
+export type MemoryRiskMetadata = {
+  riskLevel: MemoryRiskLevel;
+  score: number;
+  classesMatched: MemoryRiskClass[];
+  patternsTop: string[];
+  encodedMatches: number;
+};
+
 export type MemorySearchResult = {
   path: string;
   startLine: number;
@@ -8,6 +26,16 @@ export type MemorySearchResult = {
   snippet: string;
   source: MemorySource;
   citation?: string;
+  warnings?: string[];
+  riskLevel?: MemoryRiskLevel;
+  riskClasses?: MemoryRiskClass[];
+};
+
+export type MemorySearchOptions = {
+  maxResults?: number;
+  minScore?: number;
+  sessionKey?: string;
+  allowUntrusted?: boolean;
 };
 
 export type MemoryEmbeddingProbeResult = {
@@ -59,15 +87,13 @@ export type MemoryProviderStatus = {
 };
 
 export interface MemorySearchManager {
-  search(
-    query: string,
-    opts?: { maxResults?: number; minScore?: number; sessionKey?: string },
-  ): Promise<MemorySearchResult[]>;
+  search(query: string, opts?: MemorySearchOptions): Promise<MemorySearchResult[]>;
   readFile(params: {
     relPath: string;
     from?: number;
     lines?: number;
-  }): Promise<{ text: string; path: string }>;
+    allowUntrusted?: boolean;
+  }): Promise<{ text: string; path: string; warnings?: string[] }>;
   status(): MemoryProviderStatus;
   sync?(params?: {
     reason?: string;
