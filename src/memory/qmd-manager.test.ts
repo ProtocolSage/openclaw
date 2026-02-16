@@ -722,6 +722,35 @@ describe("QmdMemoryManager", () => {
     await manager.close();
   });
 
+  it("clears cached doc and risk metadata on close", async () => {
+    const resolved = resolveMemoryBackendConfig({ cfg, agentId });
+    const manager = await QmdMemoryManager.create({ cfg, agentId, resolved });
+    expect(manager).toBeTruthy();
+    if (!manager) {
+      throw new Error("manager missing");
+    }
+
+    const inner = manager as unknown as {
+      docPathCache: Map<string, unknown>;
+      riskMetadataCache: Map<string, unknown>;
+    };
+    inner.docPathCache.set("doc-1", { rel: "memory/test.md" });
+    inner.riskMetadataCache.set("memory:memory/test.md", {
+      riskLevel: "high",
+      score: 5,
+      classesMatched: ["instruction_override"],
+      patternsTop: ["ignore-previous-instructions"],
+      encodedMatches: 0,
+    });
+
+    expect(inner.docPathCache.size).toBe(1);
+    expect(inner.riskMetadataCache.size).toBe(1);
+
+    await manager.close();
+    expect(inner.docPathCache.size).toBe(0);
+    expect(inner.riskMetadataCache.size).toBe(0);
+  });
+
   it("throws when sqlite index is busy", async () => {
     const resolved = resolveMemoryBackendConfig({ cfg, agentId });
     const manager = await QmdMemoryManager.create({ cfg, agentId, resolved });

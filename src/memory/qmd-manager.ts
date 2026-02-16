@@ -429,6 +429,8 @@ export class QmdMemoryManager implements MemorySearchManager {
       this.db.close();
       this.db = null;
     }
+    this.docPathCache.clear();
+    this.riskMetadataCache.clear();
   }
 
   private async runUpdate(
