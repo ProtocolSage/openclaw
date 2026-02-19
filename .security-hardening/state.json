@@ -3,12 +3,12 @@
   "status": "in_progress",
   "depth": "comprehensive",
   "compliance_frameworks": ["owasp"],
-  "current_step": "checkpoint-4",
-  "current_phase": 4,
-  "completed_phases": [1, 2, 3],
-  "completed_steps": [1, 2, 3, 4, 5, 6, 7, 8],
+  "current_step": "checkpoint-5",
+  "current_phase": 5,
+  "completed_phases": [1, 2, 3, 4, 5],
+  "completed_steps": [1, 2, 3, 4, 5, 6, 7, 8, 9],
   "policy_source": "SECURITY.md",
-  "policy_strategy": "SECURITY.md is canonical; controls are mapped to execution ownership in steps 01-08.",
+  "policy_strategy": "SECURITY.md is canonical; controls are mapped to execution ownership in steps 01-09.",
   "policy_crosswalk": {
     "01": ["Security Scanning", "Runtime Requirements > Node.js Version", "Out of Scope"],
     "02": ["Operational Guidance > Web Interface Safety", "Required in Reports", "Out of Scope"],
@@ -29,7 +29,12 @@
       "Operational Guidance > Web Interface Safety"
     ],
     "07": ["Reporting", "Required in Reports", "Security & Trust"],
-    "08": ["Security Policy", "Operational Guidance > Web Interface Safety", "Security Scanning"]
+    "08": ["Security Policy", "Operational Guidance > Web Interface Safety", "Security Scanning"],
+    "09": [
+      "Operational Guidance > Tool filesystem hardening",
+      "Security Scanning",
+      "Maintainers: GHSA Updates via CLI"
+    ]
   },
   "files_created": [
     "01-vulnerability-scan.md",
@@ -40,8 +45,14 @@
     "06-container-security.md",
     "07-threat-model-phase2.md",
     "08-threat-model-executive-summary.md",
+    "09-credential-protection.md",
     "docker/seccomp/openclaw-strict.json",
-    "src/security/container-monitor.ts"
+    "src/security/container-monitor.ts",
+    "src/security/credential-vault.ts",
+    "src/security/credential-vault.test.ts",
+    "src/security/credential-audit.ts",
+    "src/security/credential-audit.test.ts",
+    "src/security/credential-env-scan.ts"
   ],
   "files_modified": [
     "src/security/skill-scanner.ts",
@@ -55,10 +66,11 @@
     "src/agents/sandbox/constants.ts",
     "src/agents/sandbox/config.ts",
     ".security-hardening/04-critical-fixes.md",
-    "src/security/container-monitor.ts"
+    "src/security/container-monitor.ts",
+    "src/logging/redact.ts"
   ],
   "started_at": "2026-02-10T00:30:00Z",
-  "last_updated": "2026-02-16T21:49:00Z",
+  "last_updated": "2026-02-18T22:20:00Z",
   "tests_passing": true,
-  "test_count": 122
+  "test_count": 177
 }

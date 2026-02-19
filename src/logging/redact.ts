@@ -35,6 +35,32 @@ const DEFAULT_REDACT_PATTERNS: string[] = [
   // Telegram Bot API URLs embed the token as `/bot<token>/...` (no word-boundary before digits).
   String.raw`\bbot(\d{6,}:[A-Za-z0-9_-]{20,})\b`,
   String.raw`\b(\d{6,}:[A-Za-z0-9_-]{20,})\b`,
+
+  // Phase 5: Additional credential patterns
+  // Anthropic API keys (expanded patterns)
+  String.raw`\b(sk-ant-api\d+-[A-Za-z0-9_-]{20,})\b`,
+  String.raw`\b(sk-ant-admin\d+-[A-Za-z0-9_-]{20,})\b`,
+  // AWS credentials
+  String.raw`\b(AKIA[A-Z0-9]{16})\b`,
+  String.raw`\b(ASIA[A-Z0-9]{16})\b`,
+  // Stripe API keys
+  String.raw`\b(sk_live_[A-Za-z0-9]{24,})\b`,
+  String.raw`\b(sk_test_[A-Za-z0-9]{24,})\b`,
+  String.raw`\b(rk_live_[A-Za-z0-9]{24,})\b`,
+  String.raw`\b(rk_test_[A-Za-z0-9]{24,})\b`,
+  // SendGrid API keys
+  String.raw`\b(SG\.[A-Za-z0-9_-]{22}\.[A-Za-z0-9_-]{43})\b`,
+  // Twilio credentials
+  String.raw`\b(AC[a-f0-9]{32})\b`,
+  // Discord bot tokens (more specific pattern)
+  String.raw`\b([A-Za-z0-9_-]{24}\.[A-Za-z0-9_-]{6}\.[A-Za-z0-9_-]{27})\b`,
+  // Database connection strings (redact password portion)
+  String.raw`(mongodb(?:\+srv)?:\/\/[^:]+:)([^@]+)(@)`,
+  String.raw`(postgres(?:ql)?:\/\/[^:]+:)([^@]+)(@)`,
+  String.raw`(mysql:\/\/[^:]+:)([^@]+)(@)`,
+  String.raw`(redis:\/\/[^:]+:)([^@]+)(@)`,
+  // Generic high-entropy secrets in URLs
+  String.raw`[?&](?:api_?key|token|secret|auth)=([A-Za-z0-9_-]{16,})`,
 ];
 
 type RedactOptions = {
