@@ -31,6 +31,7 @@ import { assertSupportedRuntime } from "./infra/runtime-guard.js";
 import { installUnhandledRejectionHandler } from "./infra/unhandled-rejections.js";
 import { enableConsoleCapture } from "./logging.js";
 import { runCommandWithTimeout, runExec } from "./process/exec.js";
+import { getCredentialExposureSummary } from "./security/credential-env-scan.js";
 import { assertWebChannel, normalizeE164, toWhatsappJid } from "./utils.js";
 
 loadDotEnv({ quiet: true });
@@ -77,6 +78,8 @@ const isMain = isMainModule({
 });
 
 if (isMain) {
+  maybeWarnOnExposedEnvCredentials();
+
   // Global error handlers to prevent silent crashes from unhandled rejections/exceptions.
   // These log the error and exit gracefully instead of crashing without trace.
   installUnhandledRejectionHandler();
@@ -90,4 +93,28 @@ if (isMain) {
     console.error("[openclaw] CLI failed:", formatUncaughtError(err));
     process.exit(1);
   });
+}
+
+function maybeWarnOnExposedEnvCredentials(): void {
+  if (process.env.VITEST === "true" || process.env.NODE_ENV === "test") {
+    return;
+  }
+  if (process.env.OPENCLAW_SECURITY_ENV_SCAN === "0") {
+    return;
+  }
+  const summary = getCredentialExposureSummary(process.env);
+  if (summary.high <= 0) {
+    return;
+  }
+  const providerPreview = summary.providers.slice(0, 6).join(", ");
+  const suffix = summary.providers.length > 6 ? ", ..." : "";
+  console.warn(
+    `[openclaw/security] Detected ${summary.high} high-risk credential environment variable(s) (${summary.total} total findings).`,
+  );
+  if (providerPreview) {
+    console.warn(`[openclaw/security] Providers: ${providerPreview}${suffix}`);
+  }
+  console.warn(
+    "[openclaw/security] Migrate to vault: openclaw security credentials migrate --env --risk high",
+  );
 }

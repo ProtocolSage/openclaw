@@ -20,7 +20,11 @@ import { resolveAgentDir, resolveAgentWorkspaceDir } from "../agents/agent-scope
 import { resolveMemorySearchConfig } from "../agents/memory-search.js";
 import { resolveSessionTranscriptsDirForAgent } from "../config/sessions/paths.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import { deepInspectForInjection } from "../security/external-content.js";
+import {
+  FileReadSecurityError,
+  inspectTextContent,
+  safeReadTextFile,
+} from "../security/safe-file-read.js";
 import { onSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import { resolveUserPath } from "../utils.js";
 import { runGeminiEmbeddingBatches, type GeminiBatchRequest } from "./batch-gemini.js";
@@ -526,10 +530,20 @@ export class MemoryIndexManager implements MemorySearchManager {
     if (stat.isSymbolicLink() || !stat.isFile()) {
       throw new Error("path required");
     }
-    const content = await fs.readFile(absPath, "utf-8");
-    const inspection = deepInspectForInjection(content);
-    const risk = toMemoryRiskMetadata(inspection);
-    if (inspection.riskLevel === "critical" && !params.allowUntrusted) {
+    let content = "";
+    let inspection: ReturnType<typeof inspectTextContent>["inspection"];
+    try {
+      const safeRead = await safeReadTextFile(absPath, {
+        allowUntrusted: params.allowUntrusted,
+        criticalErrorPrefix: "critical security risk patterns detected",
+      });
+      content = safeRead.content;
+      inspection = safeRead.inspection;
+    } catch (err) {
+      if (!(err instanceof FileReadSecurityError)) {
+        throw err;
+      }
+      const risk = toMemoryRiskMetadata(err.inspection);
       log.warn("memory read blocked: critical prompt-injection patterns detected", {
         relPath,
         riskLevel: risk.riskLevel,
@@ -537,10 +551,9 @@ export class MemoryIndexManager implements MemorySearchManager {
         patternsTop: risk.patternsTop.slice(0, 5),
         encodedMatches: risk.encodedMatches,
       });
-      throw new Error(
-        `critical security risk patterns detected: ${risk.patternsTop.slice(0, 5).join(", ")}`,
-      );
+      throw new Error(err.message, { cause: err });
     }
+    const risk = toMemoryRiskMetadata(inspection);
     const warnings =
       inspection.riskLevel === "medium" || inspection.riskLevel === "high"
         ? [buildRiskWarning({ risk, prefix: "WARNING" })]
@@ -916,11 +929,26 @@ export class MemoryIndexManager implements MemorySearchManager {
     const watchPaths = new Set<string>([
       path.join(this.workspaceDir, "MEMORY.md"),
       path.join(this.workspaceDir, "memory.md"),
-      path.join(this.workspaceDir, "memory"),
-      ...additionalPaths,
+      path.join(this.workspaceDir, "memory", "**", "*.md"),
+      ...additionalPaths.map((p) => path.join(p, "**", "*.md")),
     ]);
+    const IGNORED_DIR_NAMES = new Set([
+      ".git",
+      "node_modules",
+      ".pnpm-store",
+      ".venv",
+      "venv",
+      ".tox",
+      "__pycache__",
+    ]);
+    const ignored = (watchPath: string): boolean => {
+      const normalized = path.normalize(watchPath);
+      const parts = normalized.split(path.sep).map((segment) => segment.trim().toLowerCase());
+      return parts.some((segment) => IGNORED_DIR_NAMES.has(segment));
+    };
     this.watcher = chokidar.watch(Array.from(watchPaths), {
       ignoreInitial: true,
+      ignored,
       awaitWriteFinish: {
         stabilityThreshold: this.settings.sync.watchDebounceMs,
         pollInterval: 100,
@@ -1727,7 +1755,9 @@ export class MemoryIndexManager implements MemorySearchManager {
         collected.push(`${label}: ${text}`);
       }
       const content = collected.join("\n");
-      const risk = toMemoryRiskMetadata(deepInspectForInjection(content));
+      const risk = toMemoryRiskMetadata(
+        inspectTextContent(content, { allowUntrusted: true }).inspection,
+      );
       return {
         path: this.sessionPathForFile(absPath),
         absPath,
@@ -2409,7 +2439,7 @@ export class MemoryIndexManager implements MemorySearchManager {
     const risk =
       "risk" in entry && entry.risk
         ? entry.risk
-        : toMemoryRiskMetadata(deepInspectForInjection(content));
+        : toMemoryRiskMetadata(inspectTextContent(content, { allowUntrusted: true }).inspection);
     const chunks = chunkMarkdown(content, this.settings.chunking).filter(
       (chunk) => chunk.text.trim().length > 0,
     );

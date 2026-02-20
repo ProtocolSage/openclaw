@@ -1,8 +1,9 @@
 # Comprehensive Security Remediation Plan
 
-**Document Version:** 1.0
+**Document Version:** 1.1
 **Created:** 2026-02-09
-**Status:** DRAFT - Pending Approval
+**Updated:** 2026-02-19
+**Status:** ACTIVE - Phase 5 implementation plan updated for repository execution
 
 ---
 
@@ -739,141 +740,181 @@ export async function safeReadFile(
 
 ---
 
-## Phase 5: Credential Protection (Ongoing)
+## Phase 5: Credential Protection (1 Week)
 
-### 5.1 API Key Isolation
+**Priority:** CRITICAL  
+**Owner:** Development Team  
+**Status (as of 2026-02-19):** In progress - core implementation landed; full-suite validation + channel-wide runtime verification pending  
+**Goal:** eliminate plaintext credential persistence paths where feasible, tighten read/write access controls, and guarantee redaction coverage across logs, status surfaces, and transcript-derived outputs.
 
-**Priority:** CRITICAL
-**Owner:** Development Team
-**Timeline:** 1 week
+### 5.1 Current Baseline (Already Implemented)
 
-Implement strict credential isolation:
+The repository already contains foundational protections that this phase must extend rather than replace:
 
-```typescript
-// src/security/credential-vault.ts
+- `src/agents/auth-profiles/store.ts` persists credentials in `auth-profiles.json` with lock-based writes.
+- `src/security/audit-extra.async.ts` checks filesystem permissions for credentials and session stores.
+- `src/security/fix.ts` applies chmod/ACL tightening for state, credentials, auth profiles, and sessions.
+- `src/logging/redact.ts` provides token/pattern redaction with configurable modes and patterns.
+- `src/security/audit.ts` flags `logging.redactSensitive="off"` and several secrets-in-config findings.
 
-import crypto from "node:crypto";
-import { keytar } from "./keytar-wrapper.js";
+### 5.2 Scope of Phase 5
 
-const VAULT_SERVICE = "openclaw-vault";
+1. Introduce a credential vault abstraction for runtime secret material.
+2. Migrate on-disk credential records from plaintext payloads to references where supported.
+3. Expand redaction coverage so sensitive strings do not leak through log, gateway, or transcript-adjacent outputs.
+4. Add explicit audit and fix support for credential migration state and stale secret hygiene.
 
-export type CredentialScope =
-  | "provider" // LLM provider keys
-  | "channel" // Channel tokens
-  | "integration" // Third-party integrations
-  | "internal"; // Internal tokens
+### 5.2.1 Implementation Snapshot (Current Branch)
 
-/**
- * Store credential securely in system keychain
- */
-export async function storeCredential(
-  name: string,
-  value: string,
-  scope: CredentialScope,
-): Promise<void> {
-  const key = `${scope}:${name}`;
+Implemented:
 
-  // Encrypt before storing
-  const encrypted = encryptValue(value);
+- Vault-backed auth profile writes + resolution paths (`src/agents/auth-profiles/profiles.ts`, `src/agents/auth-profiles/oauth.ts`, `src/agents/auth-profiles/order.ts`, `src/agents/auth-profiles/vault.ts`).
+- Auth-profile plaintext migration utility (`migratePlaintextAuthProfileSecretsToVault` in `src/agents/auth-profiles/store.ts`).
+- Credential vault audit trail wiring for read/write/rotate/delete/list (`src/security/credential-vault.ts` + `src/security/credential-audit.ts`).
+- `openclaw security credentials` CLI surface:
+  - `status`
+  - `migrate`
+  - `rotate`
+    (`src/cli/security-cli.ts`)
+- Security audit checks for plaintext auth-profile secrets, vault ref integrity, and vault permission posture (`src/security/audit.ts`).
+- Security fix extensions for vault chmod hardening + auth-profile secret migration (`src/security/fix.ts`).
+- Redaction mode expansion to include `all`, plus full-log redaction wiring through console capture/file logger (`src/config/types.base.ts`, `src/config/zod-schema.ts`, `src/logging/redact.ts`, `src/logging/console.ts`, `src/logging/logger.ts`).
+- Startup environment credential exposure warning path (`src/index.ts` + `src/security/credential-env-scan.ts`).
 
-  // Store in system keychain (keytar uses OS credential store)
-  await keytar.setPassword(VAULT_SERVICE, key, encrypted);
+Remaining from this phase plan:
 
-  // Log access (without value)
-  console.log(`[vault] Stored credential: ${key}`);
-}
+1. Run full validation on a Node 22.12+ runtime with the full repo dependency set:
+   - `pnpm check`
+   - `pnpm build`
+   - `pnpm test`
+2. Perform explicit cross-channel runtime verification (core + extension channels) for credential resolution and redaction behavior.
+3. Add/expand dedicated tests for new security CLI commands and new audit findings if gaps remain after full-suite execution.
 
-/**
- * Retrieve credential with access logging
- */
-export async function getCredential(
-  name: string,
-  scope: CredentialScope,
-  requestor: string,
-): Promise<string | null> {
-  const key = `${scope}:${name}`;
+### 5.3 Workstream A: Credential Vault Architecture
 
-  // Log every access
-  console.log(`[vault] Credential access: ${key} by ${requestor}`);
+Create `src/security/credential-vault.ts` and `src/security/credential-vault.backends.ts` with:
 
-  const encrypted = await keytar.getPassword(VAULT_SERVICE, key);
-  if (!encrypted) return null;
+- `CredentialScope`: `provider`, `channel`, `integration`, `internal`
+- `VaultRef`: stable reference object persisted in config/auth stores (no raw secret)
+- API:
+  - `storeCredential(scope, name, value)`
+  - `getCredential(scope, name, requestor)`
+  - `deleteCredential(scope, name)`
+  - `rotateCredential(scope, name, nextValue)`
+  - `listCredentialMetadata()`
 
-  return decryptValue(encrypted);
-}
+Backend strategy:
 
-/**
- * Rotate a credential
- */
-export async function rotateCredential(
-  name: string,
-  scope: CredentialScope,
-  newValue: string,
-): Promise<void> {
-  // Archive old value hash for audit
-  const oldEncrypted = await keytar.getPassword(VAULT_SERVICE, `${scope}:${name}`);
+- macOS: system keychain via existing `security` CLI pattern already used in `src/agents/cli-credentials.ts`.
+- Linux/Windows fallback: encrypted local vault file in the credentials dir with strict perms (`0600` file, `0700` dir), using process-local key material and explicit warning if OS keyring is unavailable.
+- No secret values in logs; only scope/name and hashed IDs for observability.
 
-  if (oldEncrypted) {
-    const oldHash = crypto.createHash("sha256").update(oldEncrypted).digest("hex").slice(0, 16);
+### 5.4 Workstream B: Auth Store Refactor and Migration
 
-    console.log(`[vault] Rotating credential: ${scope}:${name} (old hash: ${oldHash})`);
-  }
+Primary files:
 
-  await storeCredential(name, newValue, scope);
-}
+- `src/agents/auth-profiles/types.ts`
+- `src/agents/auth-profiles/store.ts`
+- `src/agents/model-auth.ts`
+- onboarding/auth command flows under `src/commands/`
+
+Plan:
+
+1. Extend auth profile types to support a vault reference payload.
+2. Implement read compatibility for both legacy plaintext and new vault-ref records.
+3. Implement one-way writes to vault-ref once migration is enabled.
+4. Add migration routine:
+   - scan `auth-profiles.json`
+   - store secrets in vault
+   - replace plaintext with refs atomically
+   - preserve non-secret metadata
+5. Keep rollback path: if migration fails mid-run, keep original file intact and emit actionable error.
+
+Migration policy:
+
+- Default: explicit command (`openclaw security credentials migrate`) in first rollout.
+- Optional follow-up release: automatic migration on startup after soak period.
+
+### 5.5 Workstream C: Redaction Hardening
+
+Primary files:
+
+- `src/logging/redact.ts`
+- `src/logging/console.ts`
+- `src/gateway/ws-log.ts`
+- `src/memory/session-files.ts`
+- `src/config/redact-snapshot.ts`
+
+Tasks:
+
+1. Expand default redaction patterns for provider/channel/integration token formats already used by OpenClaw.
+2. Add redaction mode extension (`off`, `tools`, `all`) and wire config schema/types/defaults.
+3. Apply redaction consistently before file log writes and gateway WS diagnostic formatting.
+4. Validate that redacted config snapshots and session-derived previews never expose raw credentials.
+
+### 5.6 Workstream D: Security Audit, Fix, and CLI Operations
+
+Primary files:
+
+- `src/security/audit.ts`
+- `src/security/audit-extra.sync.ts`
+- `src/security/fix.ts`
+- `src/cli/security-cli.ts`
+
+Additions:
+
+- New audit checks:
+  - plaintext credentials present in auth profile store
+  - vault backend unavailable/degraded
+  - migrated vs non-migrated credential ratio
+  - optional credential age warnings
+- Fix path:
+  - run migration
+  - enforce permissions for any vault artifacts
+- CLI commands:
+  - `openclaw security credentials status`
+  - `openclaw security credentials migrate`
+  - `openclaw security credentials rotate --scope <scope> --name <name>`
+
+### 5.7 Cross-Channel and Extension Impact
+
+Any shared credential loading or redaction changes must be validated across:
+
+- Core channels: Telegram, Discord, Slack, Signal, iMessage, Web/WhatsApp (`src/telegram`, `src/discord`, `src/slack`, `src/signal`, `src/imessage`, `src/web`)
+- Channel/plugin framework surfaces in `src/channels` and `src/routing`
+- Installed extension channels under `extensions/*` that consume shared auth/redaction helpers
+
+### 5.8 Testing and Acceptance Gates
+
+Required tests:
+
+1. Unit tests for vault APIs, backend fallback behavior, and migration routines.
+2. Regression tests for redaction patterns and config snapshot redaction.
+3. E2E tests for auth resolution after migration (`resolveApiKeyForProvider` paths).
+4. Security audit tests for new findings and fix behavior.
+
+Required CI commands before merge:
+
+```bash
+pnpm check
+pnpm build
+pnpm test
 ```
 
-### 5.2 Chat Log Redaction
+Success criteria for Phase 5:
 
-**Priority:** HIGH
-**Owner:** Development Team
-**Timeline:** 72 hours
+- 0 plaintext API keys/tokens in migrated `auth-profiles.json` files.
+- 0 audit critical findings related to credential file permissions.
+- Redaction enabled by default and verified on log + WS diagnostic paths.
+- Migration and rotation operations are idempotent and recoverable.
 
-Enhance `src/config/logging.ts`:
+### 5.9 Execution Plan (One-Week Breakdown)
 
-```typescript
-// Add automatic redaction patterns
-
-const REDACTION_PATTERNS = [
-  // API Keys
-  { pattern: /sk-ant-api\d+-[A-Za-z0-9_-]{20,}/g, replacement: "[REDACTED:ANTHROPIC_KEY]" },
-  { pattern: /sk-[A-Za-z0-9]{20,}/g, replacement: "[REDACTED:OPENAI_KEY]" },
-  { pattern: /AIza[A-Za-z0-9_-]{35}/g, replacement: "[REDACTED:GOOGLE_KEY]" },
-  { pattern: /AKIA[A-Z0-9]{16}/g, replacement: "[REDACTED:AWS_ACCESS_KEY]" },
-
-  // Tokens
-  { pattern: /xoxb-[0-9]+-[0-9]+-[A-Za-z0-9]+/g, replacement: "[REDACTED:SLACK_BOT_TOKEN]" },
-  { pattern: /xapp-[0-9]+-[A-Za-z0-9]+/g, replacement: "[REDACTED:SLACK_APP_TOKEN]" },
-  { pattern: /[0-9]+:[A-Za-z0-9_-]{35}/g, replacement: "[REDACTED:TELEGRAM_TOKEN]" },
-
-  // Secrets
-  {
-    pattern: /-----BEGIN (?:RSA |DSA |EC |OPENSSH )?PRIVATE KEY-----[\s\S]+?-----END/g,
-    replacement: "[REDACTED:PRIVATE_KEY]",
-  },
-  { pattern: /password\s*[=:]\s*["']?[^\s"']+/gi, replacement: "password=[REDACTED]" },
-  { pattern: /secret\s*[=:]\s*["']?[^\s"']+/gi, replacement: "secret=[REDACTED]" },
-];
-
-export function redactSensitiveData(text: string): string {
-  let result = text;
-
-  for (const { pattern, replacement } of REDACTION_PATTERNS) {
-    result = result.replace(pattern, replacement);
-  }
-
-  return result;
-}
-
-// Ensure all log writes go through redaction
-export function createSecureLogger() {
-  return {
-    log: (msg: string) => console.log(redactSensitiveData(msg)),
-    error: (msg: string) => console.error(redactSensitiveData(msg)),
-    warn: (msg: string) => console.warn(redactSensitiveData(msg)),
-  };
-}
-```
+- Day 1: vault interfaces + backend scaffolding + schema/type updates.
+- Day 2: auth profile read/write compatibility + migration engine.
+- Day 3: model auth and onboarding integration + migration tests.
+- Day 4: redaction mode/pattern expansion + gateway/log wiring.
+- Day 5: audit/fix/CLI commands + cross-channel validation + final test pass.
 
 ---
 
@@ -1071,15 +1112,15 @@ Create `docs/security/checklist.md`:
 
 ## Implementation Timeline
 
-| Phase                       | Priority | Timeline     | Status        |
-| --------------------------- | -------- | ------------ | ------------- |
-| 1. Immediate Actions        | CRITICAL | 0-24 hours   | Pending       |
-| 2. Skill Hardening          | CRITICAL | 24-72 hours  | **COMPLETED** |
-| 3. Container Security       | HIGH     | 72h - 1 week | **COMPLETED** |
-| 4. Prompt Injection Defense | HIGH     | 1-2 weeks    | Pending       |
-| 5. Credential Protection    | CRITICAL | 1 week       | Pending       |
-| 6. Monitoring & Alerting    | MEDIUM   | 2-4 weeks    | Pending       |
-| 7. User Education           | MEDIUM   | Ongoing      | Pending       |
+| Phase                       | Priority | Timeline     | Status                            |
+| --------------------------- | -------- | ------------ | --------------------------------- |
+| 1. Immediate Actions        | CRITICAL | 0-24 hours   | Pending                           |
+| 2. Skill Hardening          | CRITICAL | 24-72 hours  | **COMPLETED**                     |
+| 3. Container Security       | HIGH     | 72h - 1 week | **COMPLETED**                     |
+| 4. Prompt Injection Defense | HIGH     | 1-2 weeks    | Pending                           |
+| 5. Credential Protection    | CRITICAL | 1 week       | Planned (spec updated 2026-02-19) |
+| 6. Monitoring & Alerting    | MEDIUM   | 2-4 weeks    | Pending                           |
+| 7. User Education           | MEDIUM   | Ongoing      | Pending                           |
 
 ---
 

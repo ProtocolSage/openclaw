@@ -15,6 +15,7 @@ import type {
   SkillSnapshot,
 } from "./types.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
+import { buildInjectionWarning, inspectTextContent } from "../../security/safe-file-read.js";
 import { CONFIG_DIR, resolveUserPath } from "../../utils.js";
 import { resolveSandboxPath } from "../sandbox-paths.js";
 import { resolveBundledSkillsDir } from "./bundled-dir.js";
@@ -31,6 +32,7 @@ import { serializeByKey } from "./serialize.js";
 const fsp = fs.promises;
 const skillsLogger = createSubsystemLogger("skills");
 const skillCommandDebugOnce = new Set<string>();
+const skillInjectionWarnOnce = new Set<string>();
 
 function debugSkillCommandOnce(
   messageKey: string,
@@ -195,6 +197,22 @@ function loadSkillEntries(
     let frontmatter: ParsedSkillFrontmatter = {};
     try {
       const raw = fs.readFileSync(skill.filePath, "utf-8");
+      const inspection = inspectTextContent(raw, { allowUntrusted: true }).inspection;
+      if (inspection.riskLevel === "medium" || inspection.riskLevel === "high") {
+        const warning = buildInjectionWarning({ inspection, prefix: "WARNING" });
+        const warningKey = `${skill.filePath}:warning:${inspection.riskLevel}:${inspection.patterns.slice(0, 5).join("|")}`;
+        if (!skillInjectionWarnOnce.has(warningKey)) {
+          skillInjectionWarnOnce.add(warningKey);
+          skillsLogger.warn(`skill file ${skill.filePath}: ${warning}`);
+        }
+      } else if (inspection.riskLevel === "critical") {
+        const warning = buildInjectionWarning({ inspection, prefix: "CRITICAL" });
+        const warningKey = `${skill.filePath}:critical:${inspection.patterns.slice(0, 5).join("|")}`;
+        if (!skillInjectionWarnOnce.has(warningKey)) {
+          skillInjectionWarnOnce.add(warningKey);
+          skillsLogger.warn(`skill file ${skill.filePath}: ${warning}`);
+        }
+      }
       frontmatter = parseFrontmatter(raw);
     } catch {
       // ignore malformed skills

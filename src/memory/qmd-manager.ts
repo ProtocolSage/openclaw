@@ -16,7 +16,11 @@ import type {
 import { resolveAgentWorkspaceDir } from "../agents/agent-scope.js";
 import { resolveStateDir } from "../config/paths.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import { deepInspectForInjection } from "../security/external-content.js";
+import {
+  FileReadSecurityError,
+  inspectTextContent,
+  safeReadTextFile,
+} from "../security/safe-file-read.js";
 import { parseAgentSessionKey } from "../sessions/session-key-utils.js";
 import {
   buildRiskWarning,
@@ -342,10 +346,20 @@ export class QmdMemoryManager implements MemorySearchManager {
     if (stat.isSymbolicLink() || !stat.isFile()) {
       throw new Error("path required");
     }
-    const content = await fs.readFile(absPath, "utf-8");
-    const inspection = deepInspectForInjection(content);
-    const risk = toMemoryRiskMetadata(inspection);
-    if (inspection.riskLevel === "critical" && !params.allowUntrusted) {
+    let content = "";
+    let inspection: ReturnType<typeof inspectTextContent>["inspection"];
+    try {
+      const safeRead = await safeReadTextFile(absPath, {
+        allowUntrusted: params.allowUntrusted,
+        criticalErrorPrefix: "critical security risk patterns detected",
+      });
+      content = safeRead.content;
+      inspection = safeRead.inspection;
+    } catch (err) {
+      if (!(err instanceof FileReadSecurityError)) {
+        throw err;
+      }
+      const risk = toMemoryRiskMetadata(err.inspection);
       log.warn("memory read blocked: critical prompt-injection patterns detected", {
         relPath,
         riskLevel: risk.riskLevel,
@@ -353,10 +367,9 @@ export class QmdMemoryManager implements MemorySearchManager {
         patternsTop: risk.patternsTop.slice(0, 5),
         encodedMatches: risk.encodedMatches,
       });
-      throw new Error(
-        `critical security risk patterns detected: ${risk.patternsTop.slice(0, 5).join(", ")}`,
-      );
+      throw new Error(err.message, { cause: err });
     }
+    const risk = toMemoryRiskMetadata(inspection);
     const warnings =
       inspection.riskLevel === "medium" || inspection.riskLevel === "high"
         ? [buildRiskWarning({ risk, prefix: "WARNING" })]
@@ -579,7 +592,10 @@ export class QmdMemoryManager implements MemorySearchManager {
       await fs.writeFile(target, this.renderSessionMarkdown(entry), "utf-8");
       await this.writeRiskSidecar(
         target,
-        entry.risk ?? toMemoryRiskMetadata(deepInspectForInjection(entry.content)),
+        entry.risk ??
+          toMemoryRiskMetadata(
+            inspectTextContent(entry.content, { allowUntrusted: true }).inspection,
+          ),
       );
       keep.add(target);
       keep.add(this.getRiskSidecarPath(target));
@@ -959,7 +975,7 @@ export class QmdMemoryManager implements MemorySearchManager {
       }
     }
 
-    const inspection = deepInspectForInjection(entry.snippet ?? "");
+    const inspection = inspectTextContent(entry.snippet ?? "", { allowUntrusted: true }).inspection;
     risk = toMemoryRiskMetadata(inspection);
     this.riskMetadataCache.set(cacheKey, risk);
     return risk;

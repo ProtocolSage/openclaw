@@ -8,6 +8,7 @@ import {
   resolveApiKeyForProfile,
   resolveAuthProfileOrder,
 } from "../agents/auth-profiles.js";
+import { resolveAuthProfileSecret } from "../agents/auth-profiles/vault.js";
 import { getCustomProviderApiKey, resolveEnvApiKey } from "../agents/model-auth.js";
 import { normalizeProviderId } from "../agents/model-selection.js";
 import { loadConfig } from "../config/config.js";
@@ -59,8 +60,14 @@ function resolveZaiApiKey(): string | undefined {
   ].find((id) => store.profiles[id]?.type === "api_key");
   if (apiProfile) {
     const cred = store.profiles[apiProfile];
-    if (cred?.type === "api_key" && normalizeSecretInput(cred.key)) {
-      return normalizeSecretInput(cred.key);
+    if (cred?.type === "api_key") {
+      return resolveAuthProfileSecret({
+        profileId: apiProfile,
+        field: "key",
+        value: cred.key,
+        vaultRef: cred.vaultRef,
+        requestor: "provider-usage:zai",
+      });
     }
   }
 
@@ -123,10 +130,22 @@ function resolveProviderApiKeyFromConfigAndStore(params: {
   }
   const cred = store.profiles[apiProfile];
   if (cred?.type === "api_key") {
-    return normalizeSecretInput(cred.key);
+    return resolveAuthProfileSecret({
+      profileId: apiProfile,
+      field: "key",
+      value: cred.key,
+      vaultRef: cred.vaultRef,
+      requestor: `provider-usage:${params.providerId}`,
+    });
   }
   if (cred?.type === "token") {
-    return normalizeSecretInput(cred.token);
+    return resolveAuthProfileSecret({
+      profileId: apiProfile,
+      field: "token",
+      value: cred.token,
+      vaultRef: cred.vaultRef,
+      requestor: `provider-usage:${params.providerId}`,
+    });
   }
   return undefined;
 }

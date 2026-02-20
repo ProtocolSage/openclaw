@@ -3,6 +3,7 @@ import type { AuthProfileStore } from "./types.js";
 import { normalizeProviderId } from "../model-selection.js";
 import { listProfilesForProvider } from "./profiles.js";
 import { isProfileInCooldown } from "./usage.js";
+import { resolveAuthProfileSecret } from "./vault.js";
 
 function resolveProfileUnusableUntil(stats: {
   cooldownUntil?: number;
@@ -84,10 +85,25 @@ export function resolveAuthProfileOrder(params: {
       }
     }
     if (cred.type === "api_key") {
-      return Boolean(cred.key?.trim());
+      return Boolean(
+        resolveAuthProfileSecret({
+          profileId,
+          field: "key",
+          value: cred.key,
+          vaultRef: cred.vaultRef,
+          requestor: "auth-profile-order",
+        }),
+      );
     }
     if (cred.type === "token") {
-      if (!cred.token?.trim()) {
+      const token = resolveAuthProfileSecret({
+        profileId,
+        field: "token",
+        value: cred.token,
+        vaultRef: cred.vaultRef,
+        requestor: "auth-profile-order",
+      });
+      if (!token) {
         return false;
       }
       if (

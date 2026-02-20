@@ -4,7 +4,10 @@ import type { OpenClawConfig } from "../../config/config.js";
 export type ApiKeyCredential = {
   type: "api_key";
   provider: string;
+  /** Plaintext key (legacy compatibility); new writes should use `vaultRef`. */
   key?: string;
+  /** `vault://<scope>/<name>` reference to a secret stored in the credential vault. */
+  vaultRef?: string;
   email?: string;
   /** Optional provider-specific metadata (e.g., account IDs, gateway IDs). */
   metadata?: Record<string, string>;
@@ -17,7 +20,10 @@ export type TokenCredential = {
    */
   type: "token";
   provider: string;
+  /** Plaintext token (legacy compatibility); new writes should use `vaultRef`. */
   token: string;
+  /** `vault://<scope>/<name>` reference to a secret stored in the credential vault. */
+  vaultRef?: string;
   /** Optional expiry timestamp (ms since epoch). */
   expires?: number;
   email?: string;

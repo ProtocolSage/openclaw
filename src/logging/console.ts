@@ -6,6 +6,7 @@ import { stripAnsi } from "../terminal/ansi.js";
 import { readLoggingConfig } from "./config.js";
 import { type LogLevel, normalizeLogLevel } from "./levels.js";
 import { getLogger, type LoggerSettings } from "./logger.js";
+import { redactSensitiveText, shouldRedactAllLogs } from "./redact.js";
 import { loggingState } from "./state.js";
 import { formatLocalIsoWithOffset } from "./timestamps.js";
 
@@ -235,10 +236,13 @@ export function enableConsoleCapture(): void {
     (level: LogLevel, orig: (...args: unknown[]) => void) =>
     (...args: unknown[]) => {
       const formatted = util.format(...args);
+      const redactedOutput = shouldRedactAllLogs()
+        ? redactSensitiveText(formatted, { mode: "all" })
+        : formatted;
       if (shouldSuppressConsoleMessage(formatted)) {
         return;
       }
-      const trimmed = stripAnsi(formatted).trimStart();
+      const trimmed = stripAnsi(redactedOutput).trimStart();
       const shouldPrefixTimestamp =
         loggingState.consoleTimestampPrefix &&
         trimmed.length > 0 &&
@@ -251,17 +255,17 @@ export function enableConsoleCapture(): void {
         const resolvedLogger = getLoggerLazy();
         // Map console levels to file logger
         if (level === "trace") {
-          resolvedLogger.trace(formatted);
+          resolvedLogger.trace(redactedOutput);
         } else if (level === "debug") {
-          resolvedLogger.debug(formatted);
+          resolvedLogger.debug(redactedOutput);
         } else if (level === "info") {
-          resolvedLogger.info(formatted);
+          resolvedLogger.info(redactedOutput);
         } else if (level === "warn") {
-          resolvedLogger.warn(formatted);
+          resolvedLogger.warn(redactedOutput);
         } else if (level === "error" || level === "fatal") {
-          resolvedLogger.error(formatted);
+          resolvedLogger.error(redactedOutput);
         } else {
-          resolvedLogger.info(formatted);
+          resolvedLogger.info(redactedOutput);
         }
       } catch {
         // never block console output on logging failures
@@ -269,7 +273,7 @@ export function enableConsoleCapture(): void {
       if (loggingState.forceConsoleToStderr) {
         // in RPC/JSON mode, keep stdout clean
         try {
-          const line = timestamp ? `${timestamp} ${formatted}` : formatted;
+          const line = timestamp ? `${timestamp} ${redactedOutput}` : redactedOutput;
           process.stderr.write(`${line}\n`);
         } catch (err) {
           if (isEpipeError(err)) {
@@ -279,6 +283,11 @@ export function enableConsoleCapture(): void {
         }
       } else {
         try {
+          if (redactedOutput !== formatted) {
+            const line = timestamp ? `${timestamp} ${redactedOutput}` : redactedOutput;
+            orig.call(console, line);
+            return;
+          }
           if (!timestamp) {
             orig.apply(console, args as []);
             return;

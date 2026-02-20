@@ -12,6 +12,7 @@ import path from "node:path";
 import { loadJsonFile, saveJsonFile } from "../infra/json-file.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { resolveUserPath } from "../utils.js";
+import { logCredentialAccess, type AuditOptions } from "./credential-audit.js";
 
 const log = createSubsystemLogger("security/credential-vault");
 
@@ -58,6 +59,8 @@ export type VaultOptions = {
   platform?: NodeJS.Platform;
   execFileSync?: ExecFileSyncFn;
   vaultDir?: string;
+  requestor?: string;
+  auditOptions?: AuditOptions;
 };
 
 // -----------------------------------------------------------------------------
@@ -92,6 +95,20 @@ const CREDENTIAL_VALIDATORS: Record<string, RegExp> = {
   generic: /^[A-Za-z0-9_-]{16,}$/,
 };
 
+function safeLogCredentialAccess(params: Parameters<typeof logCredentialAccess>[0]): void {
+  try {
+    logCredentialAccess(params);
+  } catch (error) {
+    log.warn("failed to append credential audit entry", {
+      action: params.action,
+      credentialName: params.credentialName,
+      scope: params.scope,
+      requestor: params.requestor,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 // -----------------------------------------------------------------------------
 // Registry Management
 // -----------------------------------------------------------------------------
@@ -101,13 +118,17 @@ type VaultRegistry = {
   entries: Record<string, CredentialEntry>;
 };
 
-function resolveVaultDir(options?: VaultOptions): string {
+export function resolveCredentialVaultDir(options?: VaultOptions): string {
   const dir = options?.vaultDir ?? DEFAULT_VAULT_DIR;
   return resolveUserPath(dir);
 }
 
+export function resolveCredentialVaultRegistryPath(options?: VaultOptions): string {
+  return path.join(resolveCredentialVaultDir(options), REGISTRY_FILENAME);
+}
+
 function resolveRegistryPath(options?: VaultOptions): string {
-  return path.join(resolveVaultDir(options), REGISTRY_FILENAME);
+  return resolveCredentialVaultRegistryPath(options);
 }
 
 function loadRegistry(options?: VaultOptions): VaultRegistry {
@@ -229,7 +250,7 @@ function deleteFromKeychain(account: string, options?: VaultOptions): boolean {
 // -----------------------------------------------------------------------------
 
 function resolveCredentialsFilePath(options?: VaultOptions): string {
-  return path.join(resolveVaultDir(options), "credentials.json");
+  return path.join(resolveCredentialVaultDir(options), "credentials.json");
 }
 
 type FileCredentialsStore = Record<string, string>;
@@ -352,13 +373,32 @@ export function storeCredential(
   scope: CredentialScope,
   options?: VaultOptions,
 ): VaultOperationResult {
+  const requestor = options?.requestor ?? "vault";
   if (!name || !value) {
+    safeLogCredentialAccess({
+      action: "write",
+      credentialName: name,
+      scope,
+      requestor,
+      success: false,
+      error: "Name and value are required",
+      options: options?.auditOptions,
+    });
     return { ok: false, error: "Name and value are required", code: "INVALID_VALUE" };
   }
 
   const validation = validateCredentialFormat(value, name);
   if (!validation.valid) {
     log.warn("credential validation failed", { name, scope, reason: validation.reason });
+    safeLogCredentialAccess({
+      action: "write",
+      credentialName: name,
+      scope,
+      requestor,
+      success: false,
+      error: validation.reason ?? "Invalid credential format",
+      options: options?.auditOptions,
+    });
     return {
       ok: false,
       error: validation.reason ?? "Invalid credential format",
@@ -371,6 +411,15 @@ export function storeCredential(
 
   // Write to storage
   if (!writeCredentialValue(account, value, options)) {
+    safeLogCredentialAccess({
+      action: "write",
+      credentialName: name,
+      scope,
+      requestor,
+      success: false,
+      error: "Failed to write credential to storage",
+      options: options?.auditOptions,
+    });
     return { ok: false, error: "Failed to write credential to storage", code: "WRITE_FAILED" };
   }
 
@@ -393,6 +442,14 @@ export function storeCredential(
   saveRegistry(registry, options);
 
   log.info("stored credential", { name, scope, hashPrefix: entry.hashPrefix });
+  safeLogCredentialAccess({
+    action: "write",
+    credentialName: name,
+    scope,
+    requestor,
+    success: true,
+    options: options?.auditOptions,
+  });
 
   return { ok: true, entry };
 }
@@ -412,6 +469,15 @@ export function getCredential(
 
   if (!entry) {
     log.warn("credential not found", { name, scope, requestor });
+    safeLogCredentialAccess({
+      action: "read",
+      credentialName: name,
+      scope,
+      requestor,
+      success: false,
+      error: `Credential "${name}" not found in scope "${scope}"`,
+      options: options?.auditOptions,
+    });
     return {
       ok: false,
       error: `Credential "${name}" not found in scope "${scope}"`,
@@ -427,6 +493,15 @@ export function getCredential(
       actualScope: entry.scope,
       requestor,
     });
+    safeLogCredentialAccess({
+      action: "read",
+      credentialName: name,
+      scope,
+      requestor,
+      success: false,
+      error: `Credential "${name}" exists but in different scope`,
+      options: options?.auditOptions,
+    });
     return {
       ok: false,
       error: `Credential "${name}" exists but in different scope`,
@@ -438,6 +513,15 @@ export function getCredential(
   const value = readCredentialValue(account, options);
   if (!value) {
     log.warn("credential value not in storage", { name, scope, requestor });
+    safeLogCredentialAccess({
+      action: "read",
+      credentialName: name,
+      scope,
+      requestor,
+      success: false,
+      error: "Credential exists in registry but not in storage",
+      options: options?.auditOptions,
+    });
     return {
       ok: false,
       error: "Credential exists in registry but not in storage",
@@ -453,6 +537,14 @@ export function getCredential(
   saveRegistry(registry, options);
 
   log.info("credential accessed", { name, scope, requestor, accessCount: entry.accessCount });
+  safeLogCredentialAccess({
+    action: "read",
+    credentialName: name,
+    scope,
+    requestor,
+    success: true,
+    options: options?.auditOptions,
+  });
 
   return { ok: true, value, entry };
 }
@@ -466,6 +558,7 @@ export function rotateCredential(
   newValue: string,
   options?: VaultOptions,
 ): VaultOperationResult {
+  const requestor = options?.requestor ?? "vault";
   const account = buildAccountName(scope, name);
   const registry = loadRegistry(options);
   const existingEntry = registry.entries[account];
@@ -478,6 +571,15 @@ export function rotateCredential(
   const validation = validateCredentialFormat(newValue, name);
   if (!validation.valid) {
     log.warn("credential rotation validation failed", { name, scope, reason: validation.reason });
+    safeLogCredentialAccess({
+      action: "rotate",
+      credentialName: name,
+      scope,
+      requestor,
+      success: false,
+      error: validation.reason ?? "Invalid credential format",
+      options: options?.auditOptions,
+    });
     return {
       ok: false,
       error: validation.reason ?? "Invalid credential format",
@@ -490,6 +592,15 @@ export function rotateCredential(
 
   // Write new value
   if (!writeCredentialValue(account, newValue, options)) {
+    safeLogCredentialAccess({
+      action: "rotate",
+      credentialName: name,
+      scope,
+      requestor,
+      success: false,
+      error: "Failed to write rotated credential to storage",
+      options: options?.auditOptions,
+    });
     return {
       ok: false,
       error: "Failed to write rotated credential to storage",
@@ -515,6 +626,14 @@ export function rotateCredential(
     newHashPrefix,
     daysSinceLastRotation: Math.floor((now - existingEntry.rotatedAt) / (24 * 60 * 60 * 1000)),
   });
+  safeLogCredentialAccess({
+    action: "rotate",
+    credentialName: name,
+    scope,
+    requestor,
+    success: true,
+    options: options?.auditOptions,
+  });
 
   return { ok: true, entry };
 }
@@ -527,11 +646,21 @@ export function deleteCredential(
   scope: CredentialScope,
   options?: VaultOptions,
 ): VaultOperationResult {
+  const requestor = options?.requestor ?? "vault";
   const account = buildAccountName(scope, name);
   const registry = loadRegistry(options);
   const entry = registry.entries[account];
 
   if (!entry) {
+    safeLogCredentialAccess({
+      action: "delete",
+      credentialName: name,
+      scope,
+      requestor,
+      success: false,
+      error: `Credential "${name}" not found in scope "${scope}"`,
+      options: options?.auditOptions,
+    });
     return {
       ok: false,
       error: `Credential "${name}" not found in scope "${scope}"`,
@@ -547,6 +676,14 @@ export function deleteCredential(
   saveRegistry(registry, options);
 
   log.info("credential deleted", { name, scope });
+  safeLogCredentialAccess({
+    action: "delete",
+    credentialName: name,
+    scope,
+    requestor,
+    success: true,
+    options: options?.auditOptions,
+  });
 
   return { ok: true, entry };
 }
@@ -560,6 +697,14 @@ export function listCredentials(
 ): CredentialEntry[] {
   const registry = loadRegistry(options);
   const entries = Object.values(registry.entries);
+  safeLogCredentialAccess({
+    action: "list",
+    credentialName: scope ? `${scope}:*` : "*",
+    scope: scope ?? "internal",
+    requestor: options?.requestor ?? "vault",
+    success: true,
+    options: options?.auditOptions,
+  });
 
   if (scope) {
     return entries.filter((e) => e.scope === scope);
@@ -598,7 +743,7 @@ export function getCredentialsDueForRotation(
  * Verify vault directory exists and has correct permissions.
  */
 export function ensureVaultDir(options?: VaultOptions): void {
-  const vaultDir = resolveVaultDir(options);
+  const vaultDir = resolveCredentialVaultDir(options);
   if (!fs.existsSync(vaultDir)) {
     fs.mkdirSync(vaultDir, { recursive: true, mode: 0o700 });
     log.info("created vault directory", { path: vaultDir });

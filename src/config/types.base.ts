@@ -129,8 +129,8 @@ export type LoggingConfig = {
   file?: string;
   consoleLevel?: "silent" | "fatal" | "error" | "warn" | "info" | "debug" | "trace";
   consoleStyle?: "pretty" | "compact" | "json";
-  /** Redact sensitive tokens in tool summaries. Default: "tools". */
-  redactSensitive?: "off" | "tools";
+  /** Redact sensitive tokens in logs. "tools" redacts tool/status output; "all" redacts all logs. */
+  redactSensitive?: "off" | "tools" | "all";
   /** Regex patterns used to redact sensitive tokens (defaults apply when unset). */
   redactPatterns?: string[];
 };

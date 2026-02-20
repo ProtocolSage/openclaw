@@ -1,5 +1,8 @@
+import fs from "node:fs";
+import path from "node:path";
 import type { OpenClawConfig } from "../config/config.js";
 import type { ExecFn } from "./windows-acl.js";
+import { isVaultRef, parseVaultRef } from "../agents/auth-profiles/vault.js";
 import { resolveBrowserConfig, resolveProfile } from "../browser/config.js";
 import { resolveBrowserControlAuth } from "../browser/control-auth.js";
 import { listChannelPlugins } from "../channels/plugins/index.js";
@@ -9,6 +12,7 @@ import { resolveGatewayAuth } from "../gateway/auth.js";
 import { buildGatewayConnectionDetails } from "../gateway/call.js";
 import { resolveGatewayProbeAuth } from "../gateway/probe-auth.js";
 import { probeGateway } from "../gateway/probe.js";
+import { loadJsonFile } from "../infra/json-file.js";
 import { collectChannelSecurityFindings } from "./audit-channel.js";
 import {
   collectAttackSurfaceSummaryFindings,
@@ -35,6 +39,7 @@ import {
   formatPermissionRemediation,
   inspectPathPermissions,
 } from "./audit-fs.js";
+import { hasCredential, resolveCredentialVaultDir } from "./credential-vault.js";
 import { DEFAULT_GATEWAY_HTTP_TOOL_DENY } from "./dangerous-tools.js";
 
 export type SecurityAuditSeverity = "info" | "warn" | "critical";
@@ -235,6 +240,217 @@ async function collectFilesystemFindings(params: {
           posixMode: 0o600,
           env: params.env,
         }),
+      });
+    }
+  }
+
+  return findings;
+}
+
+async function collectCredentialVaultFindings(params: {
+  stateDir: string;
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  execIcacls?: ExecFn;
+}): Promise<SecurityAuditFinding[]> {
+  const findings: SecurityAuditFinding[] = [];
+  const platform = params.platform ?? process.platform;
+  const vaultDir = resolveCredentialVaultDir();
+
+  const vaultPerms = await inspectPathPermissions(vaultDir, {
+    env: params.env,
+    platform,
+    exec: params.execIcacls,
+  });
+  if (vaultPerms.ok) {
+    if (vaultPerms.worldWritable || vaultPerms.groupWritable) {
+      findings.push({
+        checkId: "vault.dir.perms_writable",
+        severity: "critical",
+        title: "Credential vault directory is writable by others",
+        detail: `${formatPermissionDetail(vaultDir, vaultPerms)}; other users can modify vault metadata.`,
+        remediation: formatPermissionRemediation({
+          targetPath: vaultDir,
+          perms: vaultPerms,
+          isDir: true,
+          posixMode: 0o700,
+          env: params.env,
+        }),
+      });
+    } else if (vaultPerms.groupReadable || vaultPerms.worldReadable) {
+      findings.push({
+        checkId: "vault.dir.perms_readable",
+        severity: "warn",
+        title: "Credential vault directory is readable by others",
+        detail: `${formatPermissionDetail(vaultDir, vaultPerms)}; consider restricting to 700.`,
+        remediation: formatPermissionRemediation({
+          targetPath: vaultDir,
+          perms: vaultPerms,
+          isDir: true,
+          posixMode: 0o700,
+          env: params.env,
+        }),
+      });
+    }
+  }
+
+  for (const filename of ["registry.json", "credentials.json", "audit.jsonl"]) {
+    const filePath = path.join(vaultDir, filename);
+    if (!fs.existsSync(filePath)) {
+      continue;
+    }
+    const perms = await inspectPathPermissions(filePath, {
+      env: params.env,
+      platform,
+      exec: params.execIcacls,
+    });
+    if (!perms.ok) {
+      continue;
+    }
+    if (perms.worldWritable || perms.groupWritable) {
+      findings.push({
+        checkId: `vault.file.${filename}.perms_writable`,
+        severity: "critical",
+        title: `Vault file ${filename} is writable by others`,
+        detail: `${formatPermissionDetail(filePath, perms)}; this can corrupt vault integrity.`,
+        remediation: formatPermissionRemediation({
+          targetPath: filePath,
+          perms,
+          isDir: false,
+          posixMode: 0o600,
+          env: params.env,
+        }),
+      });
+    } else if (perms.worldReadable || perms.groupReadable) {
+      findings.push({
+        checkId: `vault.file.${filename}.perms_readable`,
+        severity: filename === "credentials.json" ? "critical" : "warn",
+        title: `Vault file ${filename} is readable by others`,
+        detail: `${formatPermissionDetail(filePath, perms)}; restrict to 600.`,
+        remediation: formatPermissionRemediation({
+          targetPath: filePath,
+          perms,
+          isDir: false,
+          posixMode: 0o600,
+          env: params.env,
+        }),
+      });
+    }
+  }
+
+  let plaintextCount = 0;
+  let invalidVaultRefCount = 0;
+  let missingVaultEntryCount = 0;
+  const scannedStorePaths: string[] = [];
+  const checkedRefs = new Set<string>();
+
+  const authStorePaths: string[] = [];
+  const agentsDir = path.join(params.stateDir, "agents");
+  const agentEntries = fs.existsSync(agentsDir)
+    ? fs.readdirSync(agentsDir, { withFileTypes: true })
+    : [];
+  for (const entry of agentEntries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    authStorePaths.push(path.join(agentsDir, entry.name, "agent", "auth-profiles.json"));
+  }
+
+  for (const storePath of authStorePaths) {
+    const raw = loadJsonFile(storePath) as {
+      profiles?: Record<string, { type?: string; key?: string; token?: string; vaultRef?: string }>;
+    } | null;
+    if (!raw || typeof raw !== "object" || !raw.profiles || typeof raw.profiles !== "object") {
+      continue;
+    }
+    scannedStorePaths.push(storePath);
+
+    for (const profile of Object.values(raw.profiles)) {
+      if (!profile || typeof profile !== "object") {
+        continue;
+      }
+      const plainCandidate =
+        profile.type === "api_key"
+          ? profile.key
+          : profile.type === "token"
+            ? profile.token
+            : undefined;
+      if (
+        typeof plainCandidate === "string" &&
+        plainCandidate.trim().length > 0 &&
+        !isVaultRef(plainCandidate)
+      ) {
+        plaintextCount++;
+      }
+
+      const refs = [profile.vaultRef, plainCandidate]
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .filter((value, index, list) => list.indexOf(value) === index)
+        .filter((value) => isVaultRef(value));
+      for (const ref of refs) {
+        const parsed = parseVaultRef(ref);
+        if (!parsed) {
+          invalidVaultRefCount++;
+          continue;
+        }
+        const key = `${parsed.scope}:${parsed.name}`;
+        if (checkedRefs.has(key)) {
+          continue;
+        }
+        checkedRefs.add(key);
+        if (!hasCredential(parsed.name, parsed.scope)) {
+          missingVaultEntryCount++;
+        }
+      }
+    }
+  }
+
+  if (plaintextCount > 0) {
+    findings.push({
+      checkId: "auth_profiles.plaintext_secrets",
+      severity: "critical",
+      title: "Plaintext secrets remain in auth-profiles store",
+      detail: `Found ${plaintextCount} plaintext API key/token values across ${scannedStorePaths.length} auth-profiles.json file(s).`,
+      remediation: `Run "${formatCliCommand("openclaw security credentials migrate")}" to move secrets into the vault.`,
+    });
+  }
+
+  if (invalidVaultRefCount > 0) {
+    findings.push({
+      checkId: "auth_profiles.invalid_vault_refs",
+      severity: "warn",
+      title: "Invalid vault references found in auth profiles",
+      detail: `Found ${invalidVaultRefCount} malformed vault:// reference(s) in auth-profiles.json.`,
+      remediation: "Re-run auth setup or migrate credentials again to repair malformed references.",
+    });
+  }
+
+  if (missingVaultEntryCount > 0) {
+    findings.push({
+      checkId: "auth_profiles.missing_vault_entries",
+      severity: "critical",
+      title: "Auth profile vault references point to missing entries",
+      detail: `Found ${missingVaultEntryCount} vault reference(s) with no matching credential in the vault registry.`,
+      remediation:
+        "Re-authenticate the affected providers or rotate/re-migrate credentials to repopulate missing vault entries.",
+    });
+  }
+
+  if (platform === "darwin") {
+    const fallbackPath = path.join(vaultDir, "credentials.json");
+    const fallbackRaw = loadJsonFile(fallbackPath);
+    const fallbackEntries =
+      fallbackRaw && typeof fallbackRaw === "object"
+        ? Object.keys(fallbackRaw as Record<string, unknown>).length
+        : 0;
+    if (fallbackEntries > 0) {
+      findings.push({
+        checkId: "vault.macos.file_fallback",
+        severity: "warn",
+        title: "macOS vault is using file fallback storage",
+        detail: `credentials.json contains ${fallbackEntries} entry(ies); keychain integration may be unavailable for those secrets.`,
+        remediation:
+          "Verify macOS Keychain access for OpenClaw and rotate/migrate secrets after keychain access is restored.",
       });
     }
   }
@@ -524,7 +740,7 @@ function collectLoggingFindings(cfg: OpenClawConfig): SecurityAuditFinding[] {
       severity: "warn",
       title: "Tool summary redaction is disabled",
       detail: `logging.redactSensitive="off" can leak secrets into logs and status output.`,
-      remediation: `Set logging.redactSensitive="tools".`,
+      remediation: `Set logging.redactSensitive="all" (or at least "tools").`,
     },
   ];
 }
@@ -652,6 +868,14 @@ export async function runSecurityAudit(opts: SecurityAuditOptions): Promise<Secu
     }
     findings.push(
       ...(await collectStateDeepFilesystemFindings({ cfg, env, stateDir, platform, execIcacls })),
+    );
+    findings.push(
+      ...(await collectCredentialVaultFindings({
+        stateDir,
+        env,
+        platform,
+        execIcacls,
+      })),
     );
     findings.push(...(await collectPluginsTrustFindings({ cfg, stateDir })));
     if (opts.deep === true) {

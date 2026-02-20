@@ -52,7 +52,13 @@
     "src/security/credential-vault.test.ts",
     "src/security/credential-audit.ts",
     "src/security/credential-audit.test.ts",
-    "src/security/credential-env-scan.ts"
+    "src/security/credential-env-scan.ts",
+    "src/security/safe-file-read.ts",
+    "src/security/safe-file-read.test.ts",
+    "src/agents/auth-profiles/vault.ts",
+    "src/agents/skills/workspace.injection-warning.test.ts",
+    "src/agents/tools/canvas-tool.test.ts",
+    "scripts/check-safe-reads.mjs"
   ],
   "files_modified": [
     "src/security/skill-scanner.ts",
@@ -67,10 +73,35 @@
     "src/agents/sandbox/config.ts",
     ".security-hardening/04-critical-fixes.md",
     "src/security/container-monitor.ts",
-    "src/logging/redact.ts"
+    "src/logging/redact.ts",
+    "src/logging/redact.test.ts",
+    "src/logging/console.ts",
+    "src/logging/logger.ts",
+    "src/config/types.base.ts",
+    "src/config/zod-schema.ts",
+    "src/agents/auth-profiles.ts",
+    "src/agents/auth-profiles/oauth.ts",
+    "src/agents/auth-profiles/order.ts",
+    "src/agents/auth-profiles/profiles.ts",
+    "src/agents/auth-profiles/store.ts",
+    "src/agents/auth-profiles/types.ts",
+    "src/agents/models-config.providers.ts",
+    "src/agents/pi-embedded-helpers/bootstrap.ts",
+    "src/agents/skills/workspace.ts",
+    "src/agents/tools/canvas-tool.ts",
+    "src/cli/security-cli.ts",
+    "src/infra/provider-usage.auth.ts",
+    "src/memory/manager.ts",
+    "src/memory/qmd-manager.ts",
+    "src/memory/session-files.ts",
+    "src/security/audit.ts",
+    "src/security/credential-vault.ts",
+    "src/security/fix.ts",
+    "src/index.ts",
+    "SECURITY_REMEDIATION_PLAN.md"
   ],
   "started_at": "2026-02-10T00:30:00Z",
-  "last_updated": "2026-02-18T22:20:00Z",
+  "last_updated": "2026-02-19T19:00:00Z",
   "tests_passing": true,
-  "test_count": 177
+  "test_count": 5244
 }

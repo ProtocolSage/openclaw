@@ -7,6 +7,7 @@ import type { ConsoleStyle } from "./console.js";
 import { resolvePreferredOpenClawTmpDir } from "../infra/tmp-openclaw-dir.js";
 import { readLoggingConfig } from "./config.js";
 import { type LogLevel, levelToMinLevel, normalizeLogLevel } from "./levels.js";
+import { redactSensitiveText, shouldRedactAllLogs } from "./redact.js";
 import { loggingState } from "./state.js";
 
 export const DEFAULT_LOG_DIR = resolvePreferredOpenClawTmpDir();
@@ -104,7 +105,8 @@ function buildLogger(settings: ResolvedSettings): TsLogger<LogObj> {
     try {
       const time = logObj.date?.toISOString?.() ?? new Date().toISOString();
       const line = JSON.stringify({ ...logObj, time });
-      fs.appendFileSync(settings.file, `${line}\n`, { encoding: "utf8" });
+      const payload = shouldRedactAllLogs() ? redactSensitiveText(line, { mode: "all" }) : line;
+      fs.appendFileSync(settings.file, `${payload}\n`, { encoding: "utf8" });
     } catch {
       // never block on logging failures
     }

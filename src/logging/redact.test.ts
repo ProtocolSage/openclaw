@@ -101,4 +101,13 @@ describe("redactSensitiveText", () => {
     });
     expect(output).toBe(input);
   });
+
+  it("applies redaction when mode is all", () => {
+    const input = "OPENAI_API_KEY=sk-1234567890abcdef";
+    const output = redactSensitiveText(input, {
+      mode: "all",
+      patterns: defaults,
+    });
+    expect(output).toBe("OPENAI_API_KEY=sk-123…cdef");
+  });
 });

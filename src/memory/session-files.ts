@@ -4,7 +4,7 @@ import type { MemoryRiskMetadata } from "./types.js";
 import { resolveSessionTranscriptsDirForAgent } from "../config/sessions/paths.js";
 import { redactSensitiveText } from "../logging/redact.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import { deepInspectForInjection } from "../security/external-content.js";
+import { inspectTextContent } from "../security/safe-file-read.js";
 import { hashText } from "./internal.js";
 import { toMemoryRiskMetadata } from "./risk.js";
 
@@ -18,6 +18,8 @@ export type SessionFileEntry = {
   hash: string;
   content: string;
   risk: MemoryRiskMetadata;
+  /** 1-indexed JSONL line numbers for each content line. */
+  lineMap: number[];
 };
 
 export async function listSessionFilesForAgent(agentId: string): Promise<string[]> {
@@ -79,8 +81,10 @@ export async function buildSessionEntry(absPath: string): Promise<SessionFileEnt
     const raw = await fs.readFile(absPath, "utf-8");
     const lines = raw.split("\n");
     const collected: string[] = [];
-    for (const line of lines) {
-      if (!line.trim()) {
+    const lineMap: number[] = [];
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line || !line.trim()) {
         continue;
       }
       let record: unknown;
@@ -112,9 +116,12 @@ export async function buildSessionEntry(absPath: string): Promise<SessionFileEnt
       const safe = redactSensitiveText(text, { mode: "tools" });
       const label = message.role === "user" ? "User" : "Assistant";
       collected.push(`${label}: ${safe}`);
+      lineMap.push(i + 1); // 1-indexed
     }
     const content = collected.join("\n");
-    const risk = toMemoryRiskMetadata(deepInspectForInjection(content));
+    const risk = toMemoryRiskMetadata(
+      inspectTextContent(content, { allowUntrusted: true }).inspection,
+    );
     return {
       path: sessionPathForFile(absPath),
       absPath,
@@ -123,6 +130,7 @@ export async function buildSessionEntry(absPath: string): Promise<SessionFileEnt
       hash: hashText(content),
       content,
       risk,
+      lineMap,
     };
   } catch (err) {
     log.debug(`Failed reading session file ${absPath}: ${String(err)}`);

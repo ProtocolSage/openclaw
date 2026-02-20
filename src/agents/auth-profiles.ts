@@ -18,8 +18,10 @@ export {
 export {
   ensureAuthProfileStore,
   loadAuthProfileStore,
+  migratePlaintextAuthProfileSecretsToVault,
   saveAuthProfileStore,
 } from "./auth-profiles/store.js";
+export type { AuthProfileVaultMigrationResult } from "./auth-profiles/store.js";
 export type {
   ApiKeyCredential,
   AuthProfileCredential,

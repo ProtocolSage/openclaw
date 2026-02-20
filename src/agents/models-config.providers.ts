@@ -5,6 +5,7 @@ import {
   resolveCopilotApiToken,
 } from "../providers/github-copilot-token.js";
 import { ensureAuthProfileStore, listProfilesForProvider } from "./auth-profiles.js";
+import { resolveAuthProfileSecret } from "./auth-profiles/vault.js";
 import { discoverBedrockModels } from "./bedrock-discovery.js";
 import {
   buildCloudflareAiGatewayModelDefinition,
@@ -310,10 +311,22 @@ function resolveApiKeyFromProfiles(params: {
       continue;
     }
     if (cred.type === "api_key") {
-      return cred.key;
+      return resolveAuthProfileSecret({
+        profileId: id,
+        field: "key",
+        value: cred.key,
+        vaultRef: cred.vaultRef,
+        requestor: `models-config:${params.provider}`,
+      });
     }
     if (cred.type === "token") {
-      return cred.token;
+      return resolveAuthProfileSecret({
+        profileId: id,
+        field: "token",
+        value: cred.token,
+        vaultRef: cred.vaultRef,
+        requestor: `models-config:${params.provider}`,
+      });
     }
   }
   return undefined;
@@ -731,7 +744,16 @@ export async function resolveImplicitProviders(params: {
     if (!baseUrl) {
       continue;
     }
-    const apiKey = resolveEnvApiKeyVarName("cloudflare-ai-gateway") ?? cred.key?.trim() ?? "";
+    const apiKey =
+      resolveEnvApiKeyVarName("cloudflare-ai-gateway") ??
+      resolveAuthProfileSecret({
+        profileId,
+        field: "key",
+        value: cred.key,
+        vaultRef: cred.vaultRef,
+        requestor: "models-config:cloudflare-ai-gateway",
+      }) ??
+      "";
     if (!apiKey) {
       continue;
     }
@@ -833,7 +855,14 @@ export async function resolveImplicitCopilotProvider(params: {
     const profileId = listProfilesForProvider(authStore, "github-copilot")[0];
     const profile = profileId ? authStore.profiles[profileId] : undefined;
     if (profile && profile.type === "token") {
-      selectedGithubToken = profile.token;
+      selectedGithubToken =
+        resolveAuthProfileSecret({
+          profileId,
+          field: "token",
+          value: profile.token,
+          vaultRef: profile.vaultRef,
+          requestor: "models-config:github-copilot",
+        }) ?? "";
     }
   }
 

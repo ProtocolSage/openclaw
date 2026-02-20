@@ -1,9 +1,13 @@
 import { Type } from "@sinclair/typebox";
 import crypto from "node:crypto";
-import fs from "node:fs/promises";
 import { writeBase64ToFile } from "../../cli/nodes-camera.js";
 import { canvasSnapshotTempPath, parseCanvasSnapshotPayload } from "../../cli/nodes-canvas.js";
 import { imageMimeFromFormat } from "../../media/mime.js";
+import {
+  inspectTextContent,
+  safeReadTextFile,
+  type SafeReadTextResult,
+} from "../../security/safe-file-read.js";
 import { optionalStringEnum, stringEnum } from "../schema/typebox.js";
 import { type AnyAgentTool, imageResult, jsonResult, readStringParam } from "./common.js";
 import { callGatewayTool, type GatewayCallOptions } from "./gateway.js";
@@ -165,17 +169,31 @@ export function createCanvasTool(): AnyAgentTool {
           });
         }
         case "a2ui_push": {
-          const jsonl =
-            typeof params.jsonl === "string" && params.jsonl.trim()
-              ? params.jsonl
-              : typeof params.jsonlPath === "string" && params.jsonlPath.trim()
-                ? await fs.readFile(params.jsonlPath.trim(), "utf8")
-                : "";
-          if (!jsonl.trim()) {
+          const warnings: string[] = [];
+          const jsonl = (() => {
+            if (typeof params.jsonl === "string" && params.jsonl.trim()) {
+              const inspected = inspectTextContent(params.jsonl);
+              warnings.push(...inspected.warnings);
+              return params.jsonl;
+            }
+            return "";
+          })();
+          let fromPath: SafeReadTextResult | null = null;
+          if (!jsonl.trim() && typeof params.jsonlPath === "string" && params.jsonlPath.trim()) {
+            fromPath = await safeReadTextFile(params.jsonlPath.trim());
+          }
+          if (fromPath) {
+            warnings.push(...fromPath.warnings);
+          }
+          const payload = jsonl || fromPath?.content || "";
+          if (!payload.trim()) {
             throw new Error("jsonl or jsonlPath required");
           }
-          await invoke("canvas.a2ui.pushJSONL", { jsonl });
-          return jsonResult({ ok: true });
+          await invoke("canvas.a2ui.pushJSONL", { jsonl: payload });
+          const dedupedWarnings = Array.from(new Set(warnings));
+          return jsonResult(
+            dedupedWarnings.length > 0 ? { ok: true, warnings: dedupedWarnings } : { ok: true },
+          );
         }
         case "a2ui_reset":
           await invoke("canvas.a2ui.reset", undefined);

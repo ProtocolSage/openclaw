@@ -14,6 +14,7 @@ import { formatAuthDoctorHint } from "./doctor.js";
 import { ensureAuthStoreFile, resolveAuthStorePath } from "./paths.js";
 import { suggestOAuthProfileIdForLegacyDefault } from "./repair.js";
 import { ensureAuthProfileStore, saveAuthProfileStore } from "./store.js";
+import { resolveAuthProfileSecret } from "./vault.js";
 
 const OAUTH_PROVIDER_IDS = new Set<string>(getOAuthProviders().map((provider) => provider.id));
 
@@ -156,14 +157,26 @@ export async function resolveApiKeyForProfile(params: {
   }
 
   if (cred.type === "api_key") {
-    const key = cred.key?.trim();
+    const key = resolveAuthProfileSecret({
+      profileId,
+      field: "key",
+      value: cred.key,
+      vaultRef: cred.vaultRef,
+      requestor: `auth-profile:${profileId}`,
+    });
     if (!key) {
       return null;
     }
     return { apiKey: key, provider: cred.provider, email: cred.email };
   }
   if (cred.type === "token") {
-    const token = cred.token?.trim();
+    const token = resolveAuthProfileSecret({
+      profileId,
+      field: "token",
+      value: cred.token,
+      vaultRef: cred.vaultRef,
+      requestor: `auth-profile:${profileId}`,
+    });
     if (!token) {
       return null;
     }

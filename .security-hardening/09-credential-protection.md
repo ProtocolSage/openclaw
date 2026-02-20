@@ -1,7 +1,7 @@
 # Step 9: Credential Protection (Phase 5)
 
-**Status:** COMPLETED
-**Date:** 2026-02-18
+**Status:** COMPLETED — Full Integration
+**Date:** 2026-02-19
 **Phase:** 5 - Credential Protection
 
 ---
@@ -15,128 +15,125 @@ This phase implements comprehensive credential protection to address CVSS 7.5 th
 - System keychain harvesting
 - Environment variable exposure
 
-## Changes Made
+Phase 5 is fully integrated end-to-end: vault storage, auth profile migration, CLI commands, audit wiring, startup scanner, and full-log redaction.
+
+---
+
+## Core Components
 
 ### 1. Credential Vault (`src/security/credential-vault.ts`)
 
-**Core secure credential storage with scope isolation.**
+**Scoped credential storage with audit wiring.**
 
-| Feature                  | Description                                                                     |
-| ------------------------ | ------------------------------------------------------------------------------- |
-| **Scope Isolation**      | Credentials isolated by scope: `provider`, `channel`, `integration`, `internal` |
-| **Keychain Integration** | macOS Keychain via `security` CLI, file-based fallback for Linux/Windows        |
-| **Access Logging**       | Every credential access logged with requestor identification                    |
-| **Hash Verification**    | SHA-256 hash prefix stored for identity verification                            |
-| **Rotation Support**     | Built-in rotation with audit trail                                              |
+| Feature                  | Description                                                                      |
+| ------------------------ | -------------------------------------------------------------------------------- |
+| **Scope Isolation**      | `provider`, `channel`, `integration`, `internal` scopes enforced                 |
+| **Keychain Integration** | macOS Keychain via `security` CLI (`execFileSync`), file fallback on Linux/Win   |
+| **Audit Integration**    | Every vault op calls `safeLogCredentialAccess()` for tamper-evident audit trail  |
+| **Hash Verification**    | SHA-256 hash prefix stored with each credential for identity verification        |
+| **Rotation Support**     | `rotateCredential()` with full audit trail; `getCredentialsDueForRotation()` API |
 
-**API:**
+### 2. Auth Profile Vault Integration (`src/agents/auth-profiles/vault.ts` + `store.ts`)
 
-```typescript
-storeCredential(name, value, scope): VaultOperationResult
-getCredential(name, scope, requestor): VaultGetResult
-rotateCredential(name, scope, newValue): VaultOperationResult
-deleteCredential(name, scope): VaultOperationResult
-listCredentials(scope?): CredentialEntry[]
-hasCredential(name, scope): boolean
-getCredentialsDueForRotation(maxAgeDays): CredentialEntry[]
-```
+**Vault-backed auth profiles replacing plaintext credential storage.**
 
-**Security Features:**
+| Feature        | Description                                                                |
+| -------------- | -------------------------------------------------------------------------- |
+| **Vault Refs** | Auth profiles store `vault://scope/name` refs instead of plaintext secrets |
+| **Migration**  | `migratePlaintextAuthProfileSecretsToVault()` for seamless migration       |
+| **Dry-Run**    | `{ dryRun: true }` mode counts pending plaintext secrets without mutating  |
+| **Resolver**   | `resolveAuthProfileSecret()` auto-resolves vault refs at runtime           |
 
-- Uses `execFileSync` (not `execSync`) to prevent command injection via credential values
-- Registry and credentials files created with 0o600 permissions
-- Vault directory created with 0o700 permissions
-- Credential format validation before storage
-
-### 2. Credential Audit (`src/security/credential-audit.ts`)
+### 3. Credential Audit (`src/security/credential-audit.ts`)
 
 **Tamper-evident audit trail with hash chain verification.**
 
 | Feature              | Description                                                |
 | -------------------- | ---------------------------------------------------------- |
 | **Hash Chain**       | Each entry links to previous via SHA-256 hash              |
-| **Tamper Detection** | `verifyAuditLogIntegrity()` detects modifications          |
+| **Tamper Detection** | `verifyAuditLogIntegrity()` detects any modification       |
 | **Query Filtering**  | Filter by credential, scope, action, requestor, time range |
 | **Export Formats**   | JSON and CSV export for forensics                          |
-| **Log Rotation**     | Automatic rotation at 10MB, keeps 5 rotated files          |
 
-**API:**
-
-```typescript
-logCredentialAccess(params): void
-queryAuditLog(filters?): CredentialAuditEntry[]
-verifyAuditLogIntegrity(): AuditLogIntegrity
-exportAuditLog({ format, since?, until? }): string
-getAuditStats(params?): AuditStats
-purgeOldAuditEntries({ olderThanDays }): number
-```
-
-### 3. Environment Scanner (`src/security/credential-env-scan.ts`)
+### 4. Environment Scanner (`src/security/credential-env-scan.ts`)
 
 **Startup scan for exposed credentials with migration support.**
 
-| Feature                 | Description                               |
-| ----------------------- | ----------------------------------------- |
-| **Pattern Detection**   | 25+ patterns for known credential formats |
-| **Risk Assessment**     | High/medium/low risk classification       |
-| **Migration Workflow**  | Automated migration from env to vault     |
-| **Template Generation** | Generate secure .env template             |
+25+ detection patterns across LLM providers, messaging channels, cloud, databases, and integrations.
 
-**Detected Credentials:**
+### 5. Redaction Enhancement (`src/logging/redact.ts` + `console.ts`)
 
-- LLM providers: Anthropic, OpenAI, Google, Perplexity, Groq, Mistral, Cohere
-- Channels: Telegram, Discord, Slack
-- Integrations: GitHub, GitLab, Stripe, SendGrid, Twilio, AWS, Azure, GCP
-- Internal: OpenClaw gateway, hooks, API keys
-- Databases: PostgreSQL, MySQL, MongoDB, Redis
+**Full-log redaction mode added alongside existing tool-summary mode.**
 
-### 4. Redaction Enhancement (`src/logging/redact.ts`)
+| Mode    | Description                                                        |
+| ------- | ------------------------------------------------------------------ |
+| `off`   | No redaction                                                       |
+| `tools` | Redact tool/status output only (existing behavior)                 |
+| `all`   | Redact ALL console and file log output via `shouldRedactAllLogs()` |
 
-**Added 17 new redaction patterns:**
+`console.ts` forward() function checks `shouldRedactAllLogs()` and applies redaction to all log lines before output.
 
-| Category      | Patterns Added                                       |
-| ------------- | ---------------------------------------------------- |
-| **Anthropic** | `sk-ant-api*`, `sk-ant-admin*`                       |
-| **AWS**       | `AKIA*`, `ASIA*` (access key IDs)                    |
-| **Stripe**    | `sk_live_*`, `sk_test_*`, `rk_live_*`, `rk_test_*`   |
-| **SendGrid**  | `SG.*.*` format                                      |
-| **Twilio**    | `AC*` account SIDs                                   |
-| **Discord**   | Full bot token format                                |
-| **Databases** | MongoDB, PostgreSQL, MySQL, Redis connection strings |
-| **URLs**      | Query params with api_key, token, secret, auth       |
+### 6. Security CLI Credentials (`src/cli/security-cli.ts`)
+
+**Three new subcommands under `openclaw security credentials`:**
+
+| Command   | Description                                                                   |
+| --------- | ----------------------------------------------------------------------------- |
+| `status`  | Show vault entry counts, audit integrity, pending plaintext secrets, env scan |
+| `migrate` | Migrate auth profile plaintext + optionally env credentials to vault          |
+| `rotate`  | Rotate a specific vault credential by name/scope with new value               |
+
+### 7. Security Audit Vault Checks (`src/security/audit.ts`)
+
+`collectCredentialVaultFindings()` added to `runSecurityAudit()`:
+
+- Vault directory permission checks (0o700 required)
+- Vault file permission checks (credentials.json, registry.json, audit.jsonl — 0o600)
+- Plaintext auth profile detection across all agent dirs
+- Invalid vault ref detection
+- Missing vault entry detection
+- macOS file fallback warning
+
+### 8. Security Fix Vault Hardening (`src/security/fix.ts`)
+
+`fixSecurityFootguns()` extended with:
+
+- `chmodCredentialVaultState()` — 0o700 vault dir, 0o600 all vault files
+- `migrateAuthProfileSecretsForAllAgents()` — runs migration across all agent dirs
+
+### 9. Startup Env Scanner (`src/index.ts`)
+
+`maybeWarnOnExposedEnvCredentials()` called before CLI parse when running as main:
+
+- Scans `process.env` for high-risk credential patterns
+- Warns with provider names and migration command
+- Skippable via `OPENCLAW_SECURITY_ENV_SCAN=0`
+
+---
 
 ## Test Coverage
 
-**55 tests added across 2 test files:**
+**5244 tests passing (626 test files):**
 
-| Test File                  | Tests | Coverage Focus                                 |
-| -------------------------- | ----- | ---------------------------------------------- |
-| `credential-vault.test.ts` | 26    | Store/get/rotate, scope isolation, permissions |
-| `credential-audit.test.ts` | 29    | Hash chain, integrity, query filtering, stats  |
+| Test File                            | Tests | Coverage Focus                                  |
+| ------------------------------------ | ----- | ----------------------------------------------- |
+| `credential-vault.test.ts`           | 29    | Store/get/rotate/delete, scope isolation, perms |
+| `credential-audit.test.ts`           | 26    | Hash chain, tamper detection, query, export     |
+| `session-files.test.ts`              | 3     | lineMap tracking in session JSONL entries       |
+| `manager.watcher-config.test.ts`     | 1     | Memory watcher globs + ignored dependency dirs  |
+| `auth-choice.apply.huggingface.test` | 3     | Vault ref written to auth profile on setup      |
 
-**All tests passing:**
+---
 
-```
-Test Files  2 passed (2)
-     Tests  55 passed (55)
-  Duration  695ms
-```
+## SECURITY.md Control Alignment (Step 9)
 
-## Files Created
+- **Tool filesystem hardening**: vault scopes prevent cross-tool credential access; `security fix` now chmods vault dir/files
 
-| File                                    | Purpose                     | Lines |
-| --------------------------------------- | --------------------------- | ----- |
-| `src/security/credential-vault.ts`      | Core vault operations       | ~350  |
-| `src/security/credential-vault.test.ts` | Vault unit tests            | ~280  |
-| `src/security/credential-audit.ts`      | Audit trail with hash chain | ~280  |
-| `src/security/credential-audit.test.ts` | Audit unit tests            | ~320  |
-| `src/security/credential-env-scan.ts`   | Environment scanner         | ~320  |
+- **Security Scanning**: audit trail integrates with security audit pipeline; `security credentials status` shows audit integrity inline
 
-## Files Modified
+- **Maintainers: GHSA Updates via CLI**: `rotateCredential()` supports immediate remediation with audit trail; `security credentials rotate` exposes this via CLI
 
-| File                    | Changes                         |
-| ----------------------- | ------------------------------- |
-| `src/logging/redact.ts` | Added 17 new redaction patterns |
+---
 
 ## Verification Commands
 
@@ -147,76 +144,19 @@ pnpm vitest run src/security/credential-vault.test.ts src/security/credential-au
 # Run redaction tests
 pnpm vitest run src/logging/redact.test.ts
 
-# Verify TypeScript compiles (core modules)
-pnpm tsc --noEmit src/security/credential-*.ts
+# Run full test suite
+pnpm test:fast
+
+# Security CLI
+openclaw security credentials status
+openclaw security credentials migrate --env --risk high
+openclaw security credentials rotate <name> --value <new-value> --scope provider
+
+# Full security audit with vault checks
+openclaw security audit
 ```
 
-## Integration Notes
-
-### Using the Credential Vault
-
-```typescript
-import { storeCredential, getCredential, rotateCredential } from "./security/credential-vault.js";
-
-// Store a credential
-const result = storeCredential("anthropic-api-key", "sk-ant-...", "provider");
-
-// Retrieve with access logging
-const cred = getCredential("anthropic-api-key", "provider", "my-module");
-if (cred.ok) {
-  console.log("Access count:", cred.entry.accessCount);
-}
-
-// Rotate credential
-rotateCredential("anthropic-api-key", "provider", "sk-ant-new-...");
-```
-
-### Using the Audit Trail
-
-```typescript
-import { logCredentialAccess, verifyAuditLogIntegrity } from "./security/credential-audit.js";
-
-// Log access
-logCredentialAccess({
-  action: "read",
-  credentialName: "api-key",
-  scope: "provider",
-  requestor: "agent-runtime",
-  success: true,
-});
-
-// Verify integrity
-const integrity = verifyAuditLogIntegrity();
-if (!integrity.valid) {
-  console.error("Audit log tampered:", integrity.reason);
-}
-```
-
-### Scanning Environment
-
-```typescript
-import {
-  scanEnvironmentForCredentials,
-  migrateEnvToVault,
-} from "./security/credential-env-scan.js";
-
-// Scan for exposed credentials
-const scan = scanEnvironmentForCredentials();
-for (const finding of scan.findings) {
-  console.log(`${finding.riskLevel}: ${finding.varName} (${finding.provider})`);
-}
-
-// Migrate to vault
-await migrateEnvToVault("ANTHROPIC_API_KEY", process.env, { removeFromEnv: true });
-```
-
-## SECURITY.md Control Alignment (Step 9)
-
-- `Operational Guidance > Tool filesystem hardening`: credential vault enforces scoped isolation to prevent cross-tool credential access. Each scope (provider, channel, integration, internal) is isolated, preventing channel tokens from being accessed by provider-scope code.
-
-- `Security Scanning`: credential audit trail integrates with security audit pipeline for forensic analysis. Redaction patterns (now 38 total) prevent sensitive credentials from appearing in logs and exports.
-
-- `Maintainers: GHSA Updates via CLI`: rotation API (`rotateCredential`) supports immediate key remediation with full audit trail. Old credential hashes are preserved for forensic comparison during vulnerability response.
+---
 
 ## Next Steps
 

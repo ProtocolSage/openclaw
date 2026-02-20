@@ -4,6 +4,7 @@ import path from "node:path";
 import type { OpenClawConfig } from "../../config/config.js";
 import type { WorkspaceBootstrapFile } from "../workspace.js";
 import type { EmbeddedContextFile } from "./types.js";
+import { buildInjectionWarning, inspectTextContent } from "../../security/safe-file-read.js";
 import { truncateUtf16Safe } from "../../utils.js";
 
 type ContentBlockWithSignature = {
@@ -219,6 +220,16 @@ export function buildBootstrapContextFiles(
       break;
     }
     const fileMaxChars = Math.max(1, Math.min(maxChars, remainingTotalChars));
+    const inspection = inspectTextContent(file.content ?? "", { allowUntrusted: true }).inspection;
+    if (inspection.riskLevel === "medium" || inspection.riskLevel === "high") {
+      opts?.warn?.(
+        `workspace bootstrap file ${file.name}: ${buildInjectionWarning({ inspection, prefix: "WARNING" })}`,
+      );
+    } else if (inspection.riskLevel === "critical") {
+      opts?.warn?.(
+        `workspace bootstrap file ${file.name}: ${buildInjectionWarning({ inspection, prefix: "CRITICAL" })}`,
+      );
+    }
     const trimmed = trimBootstrapContent(file.content ?? "", file.name, fileMaxChars);
     const contentWithinBudget = clampToBudget(trimmed.content, remainingTotalChars);
     if (!contentWithinBudget) {

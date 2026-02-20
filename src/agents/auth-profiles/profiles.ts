@@ -6,6 +6,7 @@ import {
   saveAuthProfileStore,
   updateAuthProfileStoreWithLock,
 } from "./store.js";
+import { storeAuthProfileSecret } from "./vault.js";
 
 export async function setAuthProfileOrder(params: {
   agentDir?: string;
@@ -50,17 +51,7 @@ export function upsertAuthProfile(params: {
   credential: AuthProfileCredential;
   agentDir?: string;
 }): void {
-  const credential =
-    params.credential.type === "api_key"
-      ? {
-          ...params.credential,
-          ...(typeof params.credential.key === "string"
-            ? { key: normalizeSecretInput(params.credential.key) }
-            : {}),
-        }
-      : params.credential.type === "token"
-        ? { ...params.credential, token: normalizeSecretInput(params.credential.token) }
-        : params.credential;
+  const credential = normalizeCredentialForStorage(params.profileId, params.credential);
   const store = ensureAuthProfileStore(params.agentDir);
   store.profiles[params.profileId] = credential;
   saveAuthProfileStore(store, params.agentDir);
@@ -74,7 +65,10 @@ export async function upsertAuthProfileWithLock(params: {
   return await updateAuthProfileStoreWithLock({
     agentDir: params.agentDir,
     updater: (store) => {
-      store.profiles[params.profileId] = params.credential;
+      store.profiles[params.profileId] = normalizeCredentialForStorage(
+        params.profileId,
+        params.credential,
+      );
       return true;
     },
   });
@@ -115,4 +109,47 @@ export async function markAuthProfileGood(params: {
   }
   store.lastGood = { ...store.lastGood, [provider]: profileId };
   saveAuthProfileStore(store, agentDir);
+}
+
+function normalizeCredentialForStorage(
+  profileId: string,
+  credential: AuthProfileCredential,
+): AuthProfileCredential {
+  if (credential.type === "api_key") {
+    const normalizedKey = normalizeSecretInput(credential.key);
+    if (!normalizedKey) {
+      return { ...credential, key: undefined };
+    }
+    if (normalizedKey.startsWith("vault://")) {
+      return { ...credential, key: normalizedKey, vaultRef: normalizedKey };
+    }
+    const stored = storeAuthProfileSecret({
+      profileId,
+      field: "key",
+      value: normalizedKey,
+    });
+    if (!stored.ok) {
+      return { ...credential, key: normalizedKey };
+    }
+    return { ...credential, key: stored.vaultRef, vaultRef: stored.vaultRef };
+  }
+  if (credential.type === "token") {
+    const normalizedToken = normalizeSecretInput(credential.token);
+    if (!normalizedToken) {
+      return { ...credential, token: "" };
+    }
+    if (normalizedToken.startsWith("vault://")) {
+      return { ...credential, token: normalizedToken, vaultRef: normalizedToken };
+    }
+    const stored = storeAuthProfileSecret({
+      profileId,
+      field: "token",
+      value: normalizedToken,
+    });
+    if (!stored.ok) {
+      return { ...credential, token: normalizedToken };
+    }
+    return { ...credential, token: stored.vaultRef, vaultRef: stored.vaultRef };
+  }
+  return credential;
 }

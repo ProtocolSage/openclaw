@@ -2,12 +2,14 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveDefaultAgentId } from "../agents/agent-scope.js";
+import { migratePlaintextAuthProfileSecretsToVault } from "../agents/auth-profiles.js";
 import { createConfigIO } from "../config/config.js";
 import { collectIncludePathsRecursive } from "../config/includes-scan.js";
 import { resolveConfigPath, resolveOAuthDir, resolveStateDir } from "../config/paths.js";
 import { readChannelAllowFromStore } from "../pairing/pairing-store.js";
 import { runExec } from "../process/exec.js";
 import { normalizeAgentId } from "../routing/session-key.js";
+import { ensureVaultDir, resolveCredentialVaultDir } from "./credential-vault.js";
 import { createIcaclsResetCommand, formatIcaclsResetCommand, type ExecFn } from "./windows-acl.js";
 
 export type SecurityFixChmodAction = {
@@ -384,6 +386,55 @@ async function chmodCredentialsAndAgentState(params: {
   }
 }
 
+async function chmodCredentialVaultState(params: {
+  actions: SecurityFixAction[];
+  applyPerms: (params: {
+    path: string;
+    mode: number;
+    require: "dir" | "file";
+  }) => Promise<SecurityFixAction>;
+}): Promise<void> {
+  try {
+    ensureVaultDir();
+  } catch {
+    return;
+  }
+  const vaultDir = resolveCredentialVaultDir();
+  params.actions.push(await params.applyPerms({ path: vaultDir, mode: 0o700, require: "dir" }));
+
+  const entries = await fs.readdir(vaultDir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isFile()) {
+      continue;
+    }
+    const filePath = path.join(vaultDir, entry.name);
+    // eslint-disable-next-line no-await-in-loop
+    params.actions.push(await params.applyPerms({ path: filePath, mode: 0o600, require: "file" }));
+  }
+}
+
+async function migrateAuthProfileSecretsForAllAgents(stateDir: string): Promise<{
+  migrated: number;
+  failed: number;
+  changed: boolean;
+}> {
+  const aggregated = { migrated: 0, failed: 0, changed: false };
+  const agentsDir = path.join(stateDir, "agents");
+  const entries = await fs.readdir(agentsDir, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      continue;
+    }
+    const agentDir = path.join(agentsDir, entry.name, "agent");
+    const result = migratePlaintextAuthProfileSecretsToVault({ agentDir });
+    aggregated.migrated += result.migrated;
+    aggregated.failed += result.failed;
+    aggregated.changed = aggregated.changed || result.changed;
+  }
+
+  return aggregated;
+}
+
 export async function fixSecurityFootguns(opts?: {
   env?: NodeJS.ProcessEnv;
   stateDir?: string;
@@ -460,6 +511,23 @@ export async function fixSecurityFootguns(opts?: {
   }).catch((err) => {
     errors.push(`chmodCredentialsAndAgentState failed: ${String(err)}`);
   });
+
+  await chmodCredentialVaultState({ actions, applyPerms }).catch((err) => {
+    errors.push(`chmodCredentialVaultState failed: ${String(err)}`);
+  });
+
+  const migrationResult = await migrateAuthProfileSecretsForAllAgents(stateDir).catch((err) => {
+    errors.push(`migrateAuthProfileSecretsForAllAgents failed: ${String(err)}`);
+    return null;
+  });
+  if (migrationResult) {
+    if (migrationResult.migrated > 0) {
+      changes.push(`migrated ${migrationResult.migrated} auth profile secret(s) to vault`);
+    }
+    if (migrationResult.failed > 0) {
+      errors.push(`failed to migrate ${migrationResult.failed} auth profile secret(s) to vault`);
+    }
+  }
 
   return {
     ok: errors.length === 0,

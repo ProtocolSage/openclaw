@@ -92,7 +92,8 @@ describe("applyAuthChoiceHuggingface", () => {
     );
 
     const parsed = await readAuthProfiles(agentDir);
-    expect(parsed.profiles?.["huggingface:default"]?.key).toBe("hf-test-token");
+    // Key is now stored as a vault reference after vault integration
+    expect(parsed.profiles?.["huggingface:default"]?.key).toMatch(/^vault:\/\//);
   });
 
   it("does not prompt to reuse env token when opts.token already provided", async () => {
@@ -125,6 +126,7 @@ describe("applyAuthChoiceHuggingface", () => {
     expect(text).not.toHaveBeenCalled();
 
     const parsed = await readAuthProfiles(agentDir);
-    expect(parsed.profiles?.["huggingface:default"]?.key).toBe("hf-opts-token");
+    // Key is now stored as a vault reference after vault integration
+    expect(parsed.profiles?.["huggingface:default"]?.key).toMatch(/^vault:\/\//);
   });
 });
