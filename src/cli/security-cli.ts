@@ -20,6 +20,7 @@ import {
   type CredentialScope,
 } from "../security/credential-vault.js";
 import { fixSecurityFootguns } from "../security/fix.js";
+import { getSecurityHealthReport, type SecurityHealthReport } from "../security/security-health.js";
 import { formatDocsLink } from "../terminal/links.js";
 import { isRich, theme } from "../terminal/theme.js";
 import { shortenHomeInString, shortenHomePath } from "../utils.js";
@@ -60,15 +61,134 @@ function formatSummary(summary: { critical: number; warn: number; info: number }
   return parts.join(" · ");
 }
 
+function formatStatusBadge(status: SecurityHealthReport["overall"]): string {
+  const rich = isRich();
+  if (status === "critical") {
+    return rich ? theme.error("● CRITICAL") : "● CRITICAL";
+  }
+  if (status === "warn") {
+    return rich ? theme.warn("● WARN") : "● WARN";
+  }
+  return rich ? theme.accent("● GOOD") : "● GOOD";
+}
+
 export function registerSecurityCli(program: Command) {
   const security = program
     .command("security")
-    .description("Security tools (audit, credential vault)")
+    .description("Security tools (health, audit, credential vault, monitoring)")
     .addHelpText(
       "after",
       () =>
         `\n${theme.muted("Docs:")} ${formatDocsLink("/cli/security", "docs.openclaw.ai/cli/security")}\n`,
     );
+
+  // ── security health ─────────────────────────────────────────────────────────
+
+  security
+    .command("health")
+    .description("Show unified security posture across all subsystems")
+    .option("--json", "Output JSON", false)
+    .option("--fix", "Trigger audit + rotate overdue credentials", false)
+    .action(async (opts: { json?: boolean; fix?: boolean }) => {
+      if (opts.fix) {
+        defaultRuntime.log("Applying security fixes...");
+        await fixSecurityFootguns().catch((err: unknown) => {
+          defaultRuntime.log(`Fix step failed: ${String(err)}`);
+        });
+
+        const due = getCredentialsDueForRotation();
+        if (due.length > 0) {
+          defaultRuntime.log(
+            `\n${due.length} credential(s) due for rotation. Run:\n` +
+              due
+                .map(
+                  (c) =>
+                    `  ${formatCliCommand(`openclaw security credentials rotate --name ${c.name} --scope ${c.scope}`)}`,
+                )
+                .join("\n"),
+          );
+        }
+      }
+
+      const report = await getSecurityHealthReport();
+
+      if (opts.json) {
+        defaultRuntime.log(JSON.stringify(report, null, 2));
+        return;
+      }
+
+      const rich = isRich();
+      const lines: string[] = [];
+
+      // ── overall banner ──────────────────────────────────────────────────────
+      lines.push(rich ? theme.heading("Security Health") : "Security Health");
+      lines.push(`  Overall:  ${formatStatusBadge(report.overall)}`);
+      lines.push(`  Checked:  ${new Date(report.generatedAt).toLocaleTimeString()}`);
+      lines.push("");
+
+      // ── credential vault (Phase 5) ──────────────────────────────────────────
+      lines.push(rich ? theme.heading("Credential Vault") : "Credential Vault");
+      lines.push(`  Status:          ${formatStatusBadge(report.vault.status)}`);
+      lines.push(`  Stored:          ${report.vault.credentialCount} credential(s)`);
+      lines.push(
+        `  Rotation due:    ${report.vault.rotationDueCount > 0 ? (rich ? theme.warn(String(report.vault.rotationDueCount)) : String(report.vault.rotationDueCount)) : "0"}`,
+      );
+      lines.push(
+        `  Audit integrity: ${report.vault.auditIntegrityOk ? (rich ? theme.accent("ok") : "ok") : rich ? theme.error("BROKEN") : "BROKEN"} (${report.vault.auditEntryCount} entries)`,
+      );
+      if (report.vault.rotationDueCount > 0) {
+        lines.push(
+          `  ${theme.muted("Fix:")} ${formatCliCommand("openclaw security credentials status")}`,
+        );
+      }
+      lines.push("");
+
+      // ── monitoring (Phase 6) ────────────────────────────────────────────────
+      lines.push(rich ? theme.heading("Security Monitoring") : "Security Monitoring");
+      lines.push(`  Status:          ${formatStatusBadge(report.monitoring.status)}`);
+      lines.push(
+        `  Runner:          ${report.monitoring.runnerRunning ? (rich ? theme.accent("running") : "running") : rich ? theme.warn("stopped") : "stopped"}`,
+      );
+      lines.push(`  Events (total):  ${report.monitoring.totalEvents}`);
+      lines.push(
+        `  Critical:        ${report.monitoring.criticalEvents > 0 ? (rich ? theme.error(String(report.monitoring.criticalEvents)) : String(report.monitoring.criticalEvents)) : "0"}`,
+      );
+      lines.push(
+        `  Warn:            ${report.monitoring.warnEvents > 0 ? (rich ? theme.warn(String(report.monitoring.warnEvents)) : String(report.monitoring.warnEvents)) : "0"}`,
+      );
+      lines.push(
+        `  High-risk sessions: ${report.monitoring.highRiskSessions > 0 ? (rich ? theme.warn(String(report.monitoring.highRiskSessions)) : String(report.monitoring.highRiskSessions)) : "0"}`,
+      );
+      if (report.monitoring.recentCriticalAlerts.length > 0) {
+        lines.push(
+          rich ? `  ${theme.error("Recent critical alerts:")}` : "  Recent critical alerts:",
+        );
+        for (const alert of report.monitoring.recentCriticalAlerts) {
+          lines.push(`    • ${alert}`);
+        }
+        lines.push(
+          `  ${rich ? theme.muted("View:") : "View:"} ${formatCliCommand("openclaw security monitoring events --severity critical")}`,
+        );
+      }
+      lines.push("");
+
+      // ── injection defense (Phase 4) ─────────────────────────────────────────
+      lines.push(rich ? theme.heading("Injection Defense") : "Injection Defense");
+      lines.push(`  Status:          ${formatStatusBadge(report.injectionDefense.status)}`);
+      lines.push(`  Detections (24h): ${report.injectionDefense.recentDetections}`);
+      lines.push(
+        `  Critical (24h):  ${report.injectionDefense.criticalDetections > 0 ? (rich ? theme.warn(String(report.injectionDefense.criticalDetections)) : String(report.injectionDefense.criticalDetections)) : "0"}`,
+      );
+      if (report.injectionDefense.recentDetections === 0) {
+        lines.push(
+          `  ${rich ? theme.muted("(no injection patterns detected in read files)") : "(no injection patterns detected in read files)"}`,
+        );
+      }
+
+      defaultRuntime.log(lines.join("\n"));
+    });
+
+  // ── security audit ──────────────────────────────────────────────────────────
 
   security
     .command("audit")

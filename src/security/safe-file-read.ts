@@ -136,6 +136,31 @@ export async function safeReadTextFile(
     ...options,
     filePath,
   });
+
+  if (inspected.inspection.riskLevel === "high" || inspected.inspection.riskLevel === "critical") {
+    void (async () => {
+      try {
+        const { emitSecurityEvent } = await import("./security-events.js");
+        emitSecurityEvent({
+          type: "injection_detected",
+          severity: inspected.inspection.riskLevel === "critical" ? "critical" : "warn",
+          source: "safe-file-read",
+          message: `Injection patterns detected in file: ${filePath}`,
+          details: {
+            filePath,
+            riskLevel: inspected.inspection.riskLevel,
+            patterns: inspected.inspection.patterns.slice(0, 5),
+            classesMatched: inspected.inspection.classesMatched,
+            score: inspected.inspection.score,
+          },
+          remediation: "Review the file for prompt injection patterns before processing.",
+        });
+      } catch {
+        // Event emission must never interrupt the read.
+      }
+    })();
+  }
+
   return {
     content,
     warnings: inspected.warnings,
