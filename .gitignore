@@ -86,3 +86,10 @@ USER.md
 !.agent/workflows/
 /local/
 package-lock.json
+
+# Local agent / tool state
+.agent-workspaces/
+.claude/
+.openclaw-state/
+firebase-debug.log
+local.properties
