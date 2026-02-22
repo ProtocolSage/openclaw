@@ -93,3 +93,6 @@ package-lock.json
 .openclaw-state/
 firebase-debug.log
 local.properties
+
+# Local Gradle verification artifacts
+.gradle-local/
