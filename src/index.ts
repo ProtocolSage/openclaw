@@ -31,6 +31,7 @@ import { assertSupportedRuntime } from "./infra/runtime-guard.js";
 import { installUnhandledRejectionHandler } from "./infra/unhandled-rejections.js";
 import { enableConsoleCapture } from "./logging.js";
 import { runCommandWithTimeout, runExec } from "./process/exec.js";
+import { flushCredentialDetector } from "./security/credential-detector-runtime.js";
 import { getCredentialExposureSummary } from "./security/credential-env-scan.js";
 import { assertWebChannel, normalizeE164, toWhatsappJid } from "./utils.js";
 
@@ -83,6 +84,9 @@ if (isMain) {
   // Global error handlers to prevent silent crashes from unhandled rejections/exceptions.
   // These log the error and exit gracefully instead of crashing without trace.
   installUnhandledRejectionHandler();
+
+  // Flush credential access detector buckets on shutdown so the last minute isn't lost.
+  process.once("beforeExit", () => void flushCredentialDetector());
 
   process.on("uncaughtException", (error) => {
     console.error("[openclaw] Uncaught exception:", formatUncaughtError(error));

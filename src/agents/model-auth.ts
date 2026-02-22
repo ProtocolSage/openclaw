@@ -4,6 +4,7 @@ import type { OpenClawConfig } from "../config/config.js";
 import type { ModelProviderAuthMode, ModelProviderConfig } from "../config/types.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import { getShellEnvAppliedKeys } from "../infra/shell-env.js";
+import { credentialDetector } from "../security/credential-detector-runtime.js";
 import {
   normalizeOptionalSecretInput,
   normalizeSecretInput,
@@ -154,17 +155,21 @@ export async function resolveApiKeyForProvider(params: {
       throw new Error(`No credentials found for profile "${profileId}".`);
     }
     const mode = store.profiles[profileId]?.type;
-    return {
+    const result: ResolvedProviderAuth = {
       apiKey: resolved.apiKey,
       profileId,
       source: `profile:${profileId}`,
       mode: mode === "oauth" ? "oauth" : mode === "token" ? "token" : "api-key",
     };
+    credentialDetector().recordAccess(provider, result.source);
+    return result;
   }
 
   const authOverride = resolveProviderAuthOverride(cfg, provider);
   if (authOverride === "aws-sdk") {
-    return resolveAwsSdkAuthInfo();
+    const result = resolveAwsSdkAuthInfo();
+    credentialDetector().recordAccess(provider, result.source);
+    return result;
   }
 
   const order = resolveAuthProfileOrder({
@@ -183,33 +188,40 @@ export async function resolveApiKeyForProvider(params: {
       });
       if (resolved) {
         const mode = store.profiles[candidate]?.type;
-        return {
+        const result: ResolvedProviderAuth = {
           apiKey: resolved.apiKey,
           profileId: candidate,
           source: `profile:${candidate}`,
           mode: mode === "oauth" ? "oauth" : mode === "token" ? "token" : "api-key",
         };
+        credentialDetector().recordAccess(provider, result.source);
+        return result;
       }
     } catch {}
   }
 
   const envResolved = resolveEnvApiKey(provider);
   if (envResolved) {
-    return {
+    const result: ResolvedProviderAuth = {
       apiKey: envResolved.apiKey,
       source: envResolved.source,
       mode: envResolved.source.includes("OAUTH_TOKEN") ? "oauth" : "api-key",
     };
+    credentialDetector().recordAccess(provider, result.source);
+    return result;
   }
 
   const customKey = getCustomProviderApiKey(cfg, provider);
   if (customKey) {
+    credentialDetector().recordAccess(provider, "models.json");
     return { apiKey: customKey, source: "models.json", mode: "api-key" };
   }
 
   const normalized = normalizeProviderId(provider);
   if (authOverride === undefined && normalized === "amazon-bedrock") {
-    return resolveAwsSdkAuthInfo();
+    const result = resolveAwsSdkAuthInfo();
+    credentialDetector().recordAccess(provider, result.source);
+    return result;
   }
 
   if (provider === "openai") {
