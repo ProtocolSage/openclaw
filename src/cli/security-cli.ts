@@ -342,6 +342,177 @@ export function registerSecurityCli(program: Command) {
       }
       defaultRuntime.log(`Rotated ${scope}:${name.trim()} (hash ${result.entry.hashPrefix})`);
     });
+
+  // ── security monitoring ────────────────────────────────────────────────────
+  const monitoring = security
+    .command("monitoring")
+    .description("Security monitoring and event detection status");
+
+  monitoring
+    .command("status")
+    .description("Show monitor runner and event system status")
+    .option("--json", "Output JSON", false)
+    .action(async (opts: { json?: boolean }) => {
+      const { getMonitorRunner } = await import("../security/monitor-runner.js");
+      const { getSecurityEventsManager } = await import("../security/security-events.js");
+      const { getSessionRiskMonitor } = await import("../security/session-monitoring.js");
+      const { getToolMonitor } = await import("../security/tool-monitoring.js");
+
+      const runnerStatus = getMonitorRunner().getStatus();
+      const eventsStats = getSecurityEventsManager().getStats();
+      const sessionStats = getSessionRiskMonitor().getStats();
+      const toolStats = getToolMonitor().getWindowStats();
+
+      if (opts.json) {
+        defaultRuntime.log(
+          JSON.stringify(
+            { runner: runnerStatus, events: eventsStats, sessions: sessionStats, tools: toolStats },
+            null,
+            2,
+          ),
+        );
+        return;
+      }
+
+      const rich = isRich();
+      const lines: string[] = [];
+      lines.push(rich ? theme.heading("Security Monitoring Status") : "Security Monitoring Status");
+      lines.push("");
+
+      // Runner
+      lines.push(rich ? theme.heading("Monitor Runner") : "Monitor Runner");
+      lines.push(
+        `  Running:    ${runnerStatus.running ? (rich ? theme.accent("yes") : "yes") : rich ? theme.error("no") : "no"}`,
+      );
+      lines.push(`  Enabled:    ${runnerStatus.enabled ? "yes" : "no"}`);
+      lines.push(`  Scans run:  ${runnerStatus.scanCount}`);
+      lines.push(`  Errors:     ${runnerStatus.errorCount}`);
+      if (runnerStatus.lastScanAt) {
+        lines.push(
+          `  Last scan:  ${new Date(runnerStatus.lastScanAt).toISOString()} (${runnerStatus.lastScanFindings} findings)`,
+        );
+      }
+      if (runnerStatus.nextScanAt) {
+        lines.push(`  Next scan:  ${new Date(runnerStatus.nextScanAt).toISOString()}`);
+      }
+      lines.push("");
+
+      // Events
+      lines.push(rich ? theme.heading("Security Events") : "Security Events");
+      lines.push(`  Total:      ${eventsStats.total}`);
+      lines.push(
+        `  Critical:   ${rich ? theme.error(String(eventsStats.bySeverity.critical)) : String(eventsStats.bySeverity.critical)}`,
+      );
+      lines.push(
+        `  Warn:       ${rich ? theme.warn(String(eventsStats.bySeverity.warn)) : String(eventsStats.bySeverity.warn)}`,
+      );
+      lines.push(
+        `  Info:       ${rich ? theme.muted(String(eventsStats.bySeverity.info)) : String(eventsStats.bySeverity.info)}`,
+      );
+      lines.push("");
+
+      // Sessions
+      lines.push(rich ? theme.heading("Session Risk Monitor") : "Session Risk Monitor");
+      lines.push(`  Sessions:   ${sessionStats.totalSessions}`);
+      lines.push(`  High-risk:  ${sessionStats.highRiskCount}`);
+      lines.push(`  Max score:  ${sessionStats.maxScore}`);
+      lines.push("");
+
+      // Tool calls
+      lines.push(
+        rich ? theme.heading("Tool Monitor (active window)") : "Tool Monitor (active window)",
+      );
+      lines.push(`  Calls:      ${toolStats.totalCalls}`);
+
+      defaultRuntime.log(lines.join("\n"));
+    });
+
+  monitoring
+    .command("events")
+    .description("Query recent security events")
+    .option("--severity <level>", "Filter by severity: info | warn | critical")
+    .option("--type <type>", "Filter by event type")
+    .option("--since <duration>", "Only events within window (e.g. 1h, 24h, 7d)", "24h")
+    .option("--limit <n>", "Maximum events to show", "20")
+    .option("--json", "Output JSON", false)
+    .action(
+      async (opts: {
+        severity?: string;
+        type?: string;
+        since?: string;
+        limit?: string;
+        json?: boolean;
+      }) => {
+        const { parseDurationMs } = await import("./parse-duration.js");
+        const { querySecurityEvents } = await import("../security/security-events.js");
+        const { getSecurityEventsManager } = await import("../security/security-events.js");
+
+        await getSecurityEventsManager().init();
+
+        const sinceMs = opts.since
+          ? parseDurationMs(opts.since, { defaultUnit: "h" })
+          : 24 * 60 * 60 * 1000;
+        const limit = parseInt(opts.limit ?? "20", 10);
+
+        const events = querySecurityEvents({
+          severity: opts.severity as "info" | "warn" | "critical" | undefined,
+          since: Date.now() - sinceMs,
+          limit,
+        });
+
+        if (opts.json) {
+          defaultRuntime.log(JSON.stringify(events, null, 2));
+          return;
+        }
+
+        if (events.length === 0) {
+          defaultRuntime.log(`No events in the last ${opts.since ?? "24h"}.`);
+          return;
+        }
+
+        const rich = isRich();
+        const lines: string[] = [];
+        lines.push(
+          rich
+            ? theme.heading(`Security Events (last ${opts.since ?? "24h"}, ${events.length} shown)`)
+            : `Security Events (last ${opts.since ?? "24h"}, ${events.length} shown)`,
+        );
+        lines.push("");
+
+        for (const ev of events) {
+          const ts = new Date(ev.ts).toISOString();
+          const sevLabel =
+            ev.severity === "critical"
+              ? rich
+                ? theme.error("CRIT")
+                : "CRIT"
+              : ev.severity === "warn"
+                ? rich
+                  ? theme.warn("WARN")
+                  : "WARN"
+                : rich
+                  ? theme.muted("INFO")
+                  : "INFO";
+          lines.push(`[${ts}] ${sevLabel} ${ev.type}`);
+          lines.push(`  ${ev.source}: ${ev.message}`);
+          if (ev.remediation) {
+            lines.push(
+              rich ? `  ${theme.muted("Fix:")} ${ev.remediation}` : `  Fix: ${ev.remediation}`,
+            );
+          }
+          if (ev.occurrences > 1) {
+            lines.push(
+              rich
+                ? `  ${theme.muted(`(${ev.occurrences}x deduplicated)`)}`
+                : `  (${ev.occurrences}x deduplicated)`,
+            );
+          }
+          lines.push("");
+        }
+
+        defaultRuntime.log(lines.join("\n").trimEnd());
+      },
+    );
 }
 
 function toCredentialScope(scope?: string): CredentialScope | null {

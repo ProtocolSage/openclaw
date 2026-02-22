@@ -201,6 +201,67 @@ export const OpenClawSchema = z
       })
       .strict()
       .optional(),
+    security: z
+      .object({
+        events: z
+          .object({
+            store: z.string().optional(),
+            maxBytes: z.number().int().nonnegative().optional(),
+            keepLines: z.number().int().nonnegative().optional(),
+            inMemoryLimit: z.number().int().nonnegative().optional(),
+          })
+          .strict()
+          .optional(),
+        runner: z
+          .object({
+            enabled: z.boolean().optional(),
+            every: z.string().optional(),
+            runOnStart: z.boolean().optional(),
+            startupDelayMs: z.number().int().nonnegative().optional(),
+            deepAuditEvery: z.string().optional(),
+          })
+          .strict()
+          .optional(),
+        toolMonitoring: z
+          .object({
+            enabled: z.boolean().optional(),
+            windowMs: z.number().int().nonnegative().optional(),
+            maxCallsPerWindow: z.number().int().nonnegative().optional(),
+          })
+          .strict()
+          .optional(),
+        sessionMonitoring: z
+          .object({
+            enabled: z.boolean().optional(),
+            threshold: z.number().int().nonnegative().optional(),
+          })
+          .strict()
+          .optional(),
+        anomalyDetection: z
+          .object({
+            enabled: z.boolean().optional(),
+            sensitivity: z.number().optional(),
+          })
+          .strict()
+          .optional(),
+        alerting: z
+          .object({
+            minSeverity: z.enum(["info", "warn", "critical"]).optional(),
+            dedupeWindow: z.number().int().nonnegative().optional(),
+            webhook: z
+              .object({
+                enabled: z.boolean().optional(),
+                url: z.string().optional(),
+                token: z.string().optional(),
+              })
+              .strict()
+              .optional(),
+          })
+          .strict()
+          .optional(),
+      })
+      .strict()
+      .optional(),
     update: z
       .object({
         channel: z.union([z.literal("stable"), z.literal("beta"), z.literal("dev")]).optional(),

@@ -97,6 +97,43 @@ export type OpenClawConfig = {
   talk?: TalkConfig;
   gateway?: GatewayConfig;
   memory?: MemoryConfig;
+  security?: {
+    events?: {
+      store?: string;
+      maxBytes?: number;
+      keepLines?: number;
+      inMemoryLimit?: number;
+    };
+    runner?: {
+      enabled?: boolean;
+      every?: string;
+      runOnStart?: boolean;
+      startupDelayMs?: number;
+      deepAuditEvery?: string;
+    };
+    toolMonitoring?: {
+      enabled?: boolean;
+      windowMs?: number;
+      maxCallsPerWindow?: number;
+    };
+    sessionMonitoring?: {
+      enabled?: boolean;
+      threshold?: number;
+    };
+    anomalyDetection?: {
+      enabled?: boolean;
+      sensitivity?: number;
+    };
+    alerting?: {
+      minSeverity?: "info" | "warn" | "critical";
+      dedupeWindow?: number;
+      webhook?: {
+        enabled?: boolean;
+        url?: string;
+        token?: string;
+      };
+    };
+  };
 };
 
 export type ConfigValidationIssue = {

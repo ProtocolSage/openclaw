@@ -155,6 +155,37 @@ export async function startGatewaySidecars(params: {
     params.log.warn(`qmd memory startup initialization failed: ${String(err)}`);
   });
 
+  // Phase 6: Initialize security monitoring & detection.
+  void (async () => {
+    try {
+      const { getSecurityEventsManager } = await import("../security/security-events.js");
+      const { getMonitorRunner, registerBuiltinModules } =
+        await import("../security/monitor-runner.js");
+      const { getToolMonitor } = await import("../security/tool-monitoring.js");
+      const { getSessionRiskMonitor } = await import("../security/session-monitoring.js");
+      const { getAnomalyDetector } = await import("../security/anomaly-detection.js");
+
+      const secCfg = params.cfg.security;
+      await getSecurityEventsManager(secCfg?.events, secCfg?.alerting).init();
+
+      if (secCfg?.toolMonitoring?.enabled !== false) {
+        getToolMonitor(secCfg?.toolMonitoring);
+      }
+      if (secCfg?.sessionMonitoring?.enabled !== false) {
+        getSessionRiskMonitor(secCfg?.sessionMonitoring);
+      }
+      if (secCfg?.anomalyDetection?.enabled === true) {
+        getAnomalyDetector(secCfg.anomalyDetection);
+      }
+
+      const runner = getMonitorRunner(secCfg?.runner);
+      registerBuiltinModules(runner, async () => params.cfg);
+      runner.start();
+    } catch (err) {
+      params.log.warn(`security monitoring startup failed: ${String(err)}`);
+    }
+  })();
+
   if (shouldWakeFromRestartSentinel()) {
     setTimeout(() => {
       void scheduleRestartSentinelWake({ deps: params.deps });

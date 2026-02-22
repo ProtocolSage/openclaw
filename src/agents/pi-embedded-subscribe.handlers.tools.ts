@@ -73,6 +73,28 @@ export async function handleToolExecutionStart(
   // Track start time and args for after_tool_call hook
   toolStartData.set(toolCallId, { startTime: Date.now(), args });
 
+  // Phase 6: Record tool call for abuse detection (non-fatal, never blocks execution).
+  try {
+    const { recordToolCall } = await import("../security/tool-monitoring.js");
+    const { addSessionRiskFactor } = await import("../security/session-monitoring.js");
+    const sessionKey = ctx.params.sessionKey;
+    const agentId = ctx.params.runId;
+    const argsRecord =
+      args !== null && typeof args === "object" ? (args as Record<string, unknown>) : {};
+    recordToolCall({
+      tool: toolName,
+      timestamp: Date.now(),
+      sessionKey,
+      agentId,
+      args: argsRecord,
+    });
+    if (toolName === "bash" || toolName === "execute") {
+      addSessionRiskFactor(sessionKey ?? "unknown", "BASH_EXECUTION", { agentId });
+    }
+  } catch {
+    // Monitoring must never interrupt tool execution
+  }
+
   if (toolName === "read") {
     const record = args && typeof args === "object" ? (args as Record<string, unknown>) : {};
     const filePathValue =
