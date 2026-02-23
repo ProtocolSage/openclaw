@@ -339,10 +339,17 @@ export async function noteStateIntegrity(
       if (!sessionId) {
         return false;
       }
-      const transcriptPath = resolveSessionFilePath(sessionId, entry, {
-        agentId,
-      });
-      return !existsFile(transcriptPath);
+      try {
+        const transcriptPath = resolveSessionFilePath(sessionId, entry, {
+          agentId,
+        });
+        return !existsFile(transcriptPath);
+      } catch {
+        // Session file path is outside the sessions directory (e.g. legacy
+        // CLI profile with an absolute path to a different app's sessions).
+        // Treat as missing rather than crashing the doctor.
+        return true;
+      }
     });
     if (missing.length > 0) {
       warnings.push(
@@ -353,8 +360,13 @@ export async function noteStateIntegrity(
     const mainKey = resolveMainSessionKey(cfg);
     const mainEntry = store[mainKey];
     if (mainEntry?.sessionId) {
-      const transcriptPath = resolveSessionFilePath(mainEntry.sessionId, mainEntry, { agentId });
-      if (!existsFile(transcriptPath)) {
+      let transcriptPath: string;
+      try {
+        transcriptPath = resolveSessionFilePath(mainEntry.sessionId, mainEntry, { agentId });
+      } catch {
+        transcriptPath = "";
+      }
+      if (!transcriptPath || !existsFile(transcriptPath)) {
         warnings.push(
           `- Main session transcript missing (${shortenHomePath(transcriptPath)}). History will appear to reset.`,
         );
