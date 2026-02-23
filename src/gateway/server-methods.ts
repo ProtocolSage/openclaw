@@ -14,6 +14,7 @@ import { healthHandlers } from "./server-methods/health.js";
 import { logsHandlers } from "./server-methods/logs.js";
 import { modelsHandlers } from "./server-methods/models.js";
 import { nodeHandlers } from "./server-methods/nodes.js";
+import { securityHandlers } from "./server-methods/security.js";
 import { sendHandlers } from "./server-methods/send.js";
 import { sessionsHandlers } from "./server-methods/sessions.js";
 import { skillsHandlers } from "./server-methods/skills.js";
@@ -78,6 +79,7 @@ const READ_METHODS = new Set([
   "chat.history",
   "config.get",
   "talk.config",
+  "security.health",
 ]);
 const WRITE_METHODS = new Set([
   "send",
@@ -173,6 +175,7 @@ export const coreGatewayHandlers: GatewayRequestHandlers = {
   ...logsHandlers,
   ...voicewakeHandlers,
   ...healthHandlers,
+  ...securityHandlers,
   ...channelsHandlers,
   ...chatHandlers,
   ...cronHandlers,

@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { migratePlaintextAuthProfileSecretsToVault } from "../agents/auth-profiles.js";
 import { loadConfig } from "../config/config.js";
+import { callGateway } from "../gateway/call.js";
 import { defaultRuntime } from "../runtime.js";
 import { runSecurityAudit } from "../security/audit.js";
 import {
@@ -89,7 +90,12 @@ export function registerSecurityCli(program: Command) {
     .description("Show unified security posture across all subsystems")
     .option("--json", "Output JSON", false)
     .option("--fix", "Trigger audit + rotate overdue credentials", false)
-    .action(async (opts: { json?: boolean; fix?: boolean }) => {
+    .option(
+      "--local",
+      "Skip gateway RPC; query in-process only (monitoring runner will show stopped)",
+      false,
+    )
+    .action(async (opts: { json?: boolean; fix?: boolean; local?: boolean }) => {
       if (opts.fix) {
         defaultRuntime.log("Applying security fixes...");
         await fixSecurityFootguns().catch((err: unknown) => {
@@ -110,7 +116,26 @@ export function registerSecurityCli(program: Command) {
         }
       }
 
-      const report = await getSecurityHealthReport();
+      // Try to get the report from the gateway process first so the
+      // MonitorRunner shows its live status.  Fall back to in-process when the
+      // gateway is unreachable (not running, wrong URL, auth failure, etc.).
+      let report: SecurityHealthReport;
+      let dataSource: "gateway" | "local" = "local";
+
+      if (!opts.local) {
+        try {
+          report = await callGateway<SecurityHealthReport>({
+            method: "security.health",
+            timeoutMs: 5_000,
+          });
+          dataSource = "gateway";
+        } catch {
+          // Gateway unreachable — fall through to in-process query.
+          report = await getSecurityHealthReport();
+        }
+      } else {
+        report = await getSecurityHealthReport();
+      }
 
       if (opts.json) {
         defaultRuntime.log(JSON.stringify(report, null, 2));
@@ -124,6 +149,9 @@ export function registerSecurityCli(program: Command) {
       lines.push(rich ? theme.heading("Security Health") : "Security Health");
       lines.push(`  Overall:  ${formatStatusBadge(report.overall)}`);
       lines.push(`  Checked:  ${new Date(report.generatedAt).toLocaleTimeString()}`);
+      lines.push(
+        `  Source:   ${dataSource === "gateway" ? (rich ? theme.accent("gateway (live)") : "gateway (live)") : rich ? theme.muted("local (gateway offline)") : "local (gateway offline)"}`,
+      );
       lines.push("");
 
       // ── credential vault (Phase 5) ──────────────────────────────────────────
