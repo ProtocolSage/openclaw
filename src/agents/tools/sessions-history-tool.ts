@@ -3,6 +3,7 @@ import type { AnyAgentTool } from "./common.js";
 import { loadConfig } from "../../config/config.js";
 import { callGateway } from "../../gateway/call.js";
 import { capArrayByJsonBytes } from "../../gateway/session-utils.fs.js";
+import { redactSensitiveText } from "../../logging/redact.js";
 import { truncateUtf16Safe } from "../../utils.js";
 import { jsonResult, readStringParam } from "./common.js";
 import {
@@ -26,31 +27,46 @@ const SESSIONS_HISTORY_TEXT_MAX_CHARS = 4000;
 
 // sandbox policy handling is shared with sessions-list-tool via sessions-helpers.ts
 
-function truncateHistoryText(text: string): { text: string; truncated: boolean } {
-  if (text.length <= SESSIONS_HISTORY_TEXT_MAX_CHARS) {
-    return { text, truncated: false };
+function truncateHistoryText(text: string): {
+  text: string;
+  truncated: boolean;
+  redacted: boolean;
+} {
+  // Redact credentials, API keys, tokens before returning session history.
+  // Prevents sensitive data leakage via sessions_history tool (OC-07).
+  const sanitized = redactSensitiveText(text);
+  const redacted = sanitized !== text;
+  if (sanitized.length <= SESSIONS_HISTORY_TEXT_MAX_CHARS) {
+    return { text: sanitized, truncated: false, redacted };
   }
-  const cut = truncateUtf16Safe(text, SESSIONS_HISTORY_TEXT_MAX_CHARS);
-  return { text: `${cut}\n…(truncated)…`, truncated: true };
+  const cut = truncateUtf16Safe(sanitized, SESSIONS_HISTORY_TEXT_MAX_CHARS);
+  return { text: `${cut}\n…(truncated)…`, truncated: true, redacted };
 }
 
-function sanitizeHistoryContentBlock(block: unknown): { block: unknown; truncated: boolean } {
+function sanitizeHistoryContentBlock(block: unknown): {
+  block: unknown;
+  truncated: boolean;
+  redacted: boolean;
+} {
   if (!block || typeof block !== "object") {
-    return { block, truncated: false };
+    return { block, truncated: false, redacted: false };
   }
   const entry = { ...(block as Record<string, unknown>) };
   let truncated = false;
+  let redacted = false;
   const type = typeof entry.type === "string" ? entry.type : "";
   if (typeof entry.text === "string") {
     const res = truncateHistoryText(entry.text);
     entry.text = res.text;
     truncated ||= res.truncated;
+    redacted ||= res.redacted;
   }
   if (type === "thinking") {
     if (typeof entry.thinking === "string") {
       const res = truncateHistoryText(entry.thinking);
       entry.thinking = res.text;
       truncated ||= res.truncated;
+      redacted ||= res.redacted;
     }
     // The encrypted signature can be extremely large and is not useful for history recall.
     if ("thinkingSignature" in entry) {
@@ -62,6 +78,7 @@ function sanitizeHistoryContentBlock(block: unknown): { block: unknown; truncate
     const res = truncateHistoryText(entry.partialJson);
     entry.partialJson = res.text;
     truncated ||= res.truncated;
+    redacted ||= res.redacted;
   }
   if (type === "image") {
     const data = typeof entry.data === "string" ? entry.data : undefined;
@@ -75,7 +92,7 @@ function sanitizeHistoryContentBlock(block: unknown): { block: unknown; truncate
       entry.bytes = bytes;
     }
   }
-  return { block: entry, truncated };
+  return { block: entry, truncated, redacted };
 }
 
 function sanitizeHistoryMessage(message: unknown): { message: unknown; truncated: boolean } {

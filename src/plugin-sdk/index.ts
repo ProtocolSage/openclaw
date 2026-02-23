@@ -292,6 +292,7 @@ export { stripAnsi } from "../terminal/ansi.js";
 export { missingTargetError } from "../infra/outbound/target-errors.js";
 export { registerLogTransport } from "../logging/logger.js";
 export type { LogTransport, LogTransportRecord } from "../logging/logger.js";
+export { redactSensitiveText } from "../logging/redact.js";
 export {
   emitDiagnosticEvent,
   isDiagnosticsEnabled,
