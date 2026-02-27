@@ -176,6 +176,9 @@ export function createExecTool(
       safeBinTrustedDirs: defaults?.safeBinTrustedDirs,
       safeBinProfiles: defaults?.safeBinProfiles,
     },
+    onWarning: (message) => {
+      logInfo(message);
+    },
   });
   if (unprofiledSafeBins.length > 0) {
     logInfo(
@@ -404,6 +407,10 @@ export function createExecTool(
           requestedNode: params.node?.trim(),
           boundNode: defaults?.node?.trim(),
           sessionKey: defaults?.sessionKey,
+          turnSourceChannel: defaults?.messageProvider,
+          turnSourceTo: defaults?.currentChannelId,
+          turnSourceAccountId: defaults?.accountId,
+          turnSourceThreadId: defaults?.currentThreadTs,
           agentId,
           security,
           ask,
@@ -430,6 +437,10 @@ export function createExecTool(
           safeBinProfiles,
           agentId,
           sessionKey: defaults?.sessionKey,
+          turnSourceChannel: defaults?.messageProvider,
+          turnSourceTo: defaults?.currentChannelId,
+          turnSourceAccountId: defaults?.accountId,
+          turnSourceThreadId: defaults?.currentThreadTs,
           scopeKey: defaults?.scopeKey,
           warnings,
           notifySessionKey,
