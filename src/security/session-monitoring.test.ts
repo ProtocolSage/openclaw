@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { resetSecurityEventsManager } from "./security-events.js";
+import { resetSecurityEventsManager, subscribeSecurityEvents } from "./security-events.js";
 import { SessionRiskMonitor, resetSessionRiskMonitor, RISK_FACTORS } from "./session-monitoring.js";
 
 describe("SessionRiskMonitor", () => {
@@ -356,6 +356,71 @@ describe("SessionRiskMonitor", () => {
       }
       // 50 < 100 — no eviction
       expect(m.getStats().totalSessions).toBe(50);
+    });
+  });
+
+  describe("CQ-7 — critical escalation emits full risk-factor summary", () => {
+    it("emits a critical event with topFactors on gradual warn→critical escalation", () => {
+      // threshold=70, critical=105.
+      // Step 1: score 75 → warn event (alertedAt set, not yet isolated).
+      // Step 2: score 105 → else-if branch fires → emitHighRiskAlert re-emitted with
+      //         severity=critical and full topFactors (CQ-7 fix).
+      const collected: Array<{ severity: string; topFactors: unknown }> = [];
+      const unsub = subscribeSecurityEvents((ev) => {
+        if (ev.type === "session_anomaly") {
+          collected.push({
+            severity: ev.severity,
+            topFactors: ev.details?.topFactors,
+          });
+        }
+      });
+
+      try {
+        const sk = "cq7-gradual";
+        monitor.addRiskFactor(sk, "PRIVILEGE_COMMAND"); // 25
+        monitor.addRiskFactor(sk, "PRIVILEGE_COMMAND"); // 50
+        monitor.addRiskFactor(sk, "PRIVILEGE_COMMAND"); // 75 → warn alert
+        monitor.addRiskFactor(sk, "ABUSE_PATTERN_MATCH"); // 105 → critical escalation
+
+        // Warn event at threshold crossing
+        const warnEvent = collected.find((e) => e.severity === "warn");
+        expect(warnEvent).toBeDefined();
+        expect(Array.isArray(warnEvent?.topFactors)).toBe(true);
+
+        // Critical event must be present with topFactors (CQ-7)
+        const critEvent = collected.find((e) => e.severity === "critical");
+        expect(critEvent).toBeDefined();
+        const critTopFactors = critEvent?.topFactors as unknown[] | undefined;
+        expect(Array.isArray(critTopFactors)).toBe(true);
+        expect(critTopFactors?.length).toBeGreaterThan(0);
+
+        // Session must be isolated after critical escalation
+        expect(monitor.isSessionIsolated(sk)).toBe(true);
+      } finally {
+        unsub();
+      }
+    });
+
+    it("does not emit a second warn event when score crosses critical threshold", () => {
+      // Only one warn event should fire (at initial threshold crossing).
+      const warnCount: number[] = [];
+      const unsub = subscribeSecurityEvents((ev) => {
+        if (ev.type === "session_anomaly" && ev.severity === "warn") {
+          warnCount.push(1);
+        }
+      });
+
+      try {
+        const sk = "cq7-no-double-warn";
+        monitor.addRiskFactor(sk, "PRIVILEGE_COMMAND"); // 25
+        monitor.addRiskFactor(sk, "PRIVILEGE_COMMAND"); // 50
+        monitor.addRiskFactor(sk, "PRIVILEGE_COMMAND"); // 75 → first warn
+        monitor.addRiskFactor(sk, "ABUSE_PATTERN_MATCH"); // 105 → critical (no second warn)
+
+        expect(warnCount).toHaveLength(1);
+      } finally {
+        unsub();
+      }
     });
   });
 });

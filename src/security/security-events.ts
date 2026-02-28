@@ -351,10 +351,20 @@ export class SecurityEventsManager {
 
   /**
    * Subscribe to security events.
+   *
+   * The listener may be async. Any rejection is caught and logged so that a
+   * failing subscriber never causes an uncaught-promise rejection or silently
+   * swallows the error (BP-12).
    */
   subscribe(listener: SecurityEventListener): () => void {
-    this.emitter.on("event", listener);
-    return () => this.emitter.off("event", listener);
+    const wrapper = (event: SecurityEvent) => {
+      // BP-12: catch and log async listener errors so they never swallow silently.
+      Promise.resolve(listener(event)).catch((err: unknown) => {
+        log.warn("security event listener error", { err });
+      });
+    };
+    this.emitter.on("event", wrapper);
+    return () => this.emitter.off("event", wrapper);
   }
 
   /**
@@ -617,6 +627,19 @@ export class SecurityEventsManager {
    */
   flushWrites(): void {
     this.flushPendingWrites();
+  }
+
+  /**
+   * Tear down the manager: flush pending writes, clear all in-memory state, and
+   * remove all listeners. After `destroy()` the instance is inert; obtain a
+   * fresh singleton via `getSecurityEventsManager()` after calling
+   * `resetSecurityEventsManager()`.
+   */
+  destroy(): void {
+    this.flushPendingWrites();
+    this.dedupeMap.clear();
+    this.ringBuffer = new RingBuffer(this.config.inMemoryLimit);
+    this.emitter.removeAllListeners();
   }
 
   private rotateFile(storePath: string): void {

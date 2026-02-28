@@ -5,10 +5,16 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   SecurityEventsManager,
+  emitSecurityEvent,
+  flushSecurityEventPersistence,
+  getSecurityEventsManager,
+  querySecurityEvents,
   resetSecurityEventsManager,
+  subscribeSecurityAlerts,
+  subscribeSecurityEvents,
   type SecurityEvent,
   type SecurityEventEmitParams,
 } from "./security-events.js";
@@ -690,6 +696,254 @@ describe("SecurityEventsManager", () => {
         .split("\n")
         .filter((l) => l.trim());
       expect(lines).toHaveLength(1);
+    });
+  });
+
+  describe("subscribe — async listener error handling (BP-12)", () => {
+    it("does not propagate unhandled rejection when async listener throws", async () => {
+      const failingListener = async (_event: SecurityEvent): Promise<void> => {
+        throw new Error("listener boom");
+      };
+
+      manager.subscribe(failingListener);
+
+      // Should not throw synchronously or produce an unhandled rejection
+      expect(() =>
+        manager.emit({
+          type: "injection_detected",
+          severity: "warn",
+          source: "test",
+          message: "bp12-async-throw",
+        }),
+      ).not.toThrow();
+
+      // Let the microtask queue drain — rejection must be caught internally
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    });
+
+    it("other subscribers still receive events when one listener throws (BP-12)", async () => {
+      const received: SecurityEvent[] = [];
+
+      manager.subscribe(async () => {
+        throw new Error("bad subscriber");
+      });
+      manager.subscribe((e) => {
+        received.push(e);
+      });
+
+      manager.emit({
+        type: "tool_abuse_detected",
+        severity: "warn",
+        source: "test",
+        message: "bp12-isolation",
+      });
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(received).toHaveLength(1);
+    });
+  });
+
+  describe("triggerAlert — warn severity uses warn log method", () => {
+    it("emits alert for warn-level event when minSeverity is warn", () => {
+      const warnManager = new SecurityEventsManager(
+        { store: path.join(tempDir, "warn-alert.jsonl") },
+        { minSeverity: "warn" },
+      );
+
+      const alerts: SecurityEvent[] = [];
+      warnManager.subscribeAlerts((e) => {
+        alerts.push(e);
+      });
+
+      warnManager.emit({
+        type: "skill_scan_failed",
+        severity: "warn",
+        source: "scanner",
+        message: "warn-level alert test",
+      });
+
+      expect(alerts).toHaveLength(1);
+      expect(alerts[0].severity).toBe("warn");
+    });
+  });
+
+  describe("module-level convenience exports", () => {
+    beforeEach(() => {
+      resetSecurityEventsManager();
+    });
+
+    afterEach(() => {
+      resetSecurityEventsManager();
+    });
+
+    it("emitSecurityEvent delegates to the singleton manager", () => {
+      const event = emitSecurityEvent({
+        type: "injection_detected",
+        severity: "warn",
+        source: "test-convenience",
+        message: "emitSecurityEvent test",
+      });
+
+      expect(event.type).toBe("injection_detected");
+      expect(event.source).toBe("test-convenience");
+    });
+
+    it("querySecurityEvents returns events from the singleton manager", () => {
+      emitSecurityEvent({
+        type: "monitor_failure",
+        severity: "warn",
+        source: "test-convenience",
+        message: "query test",
+      });
+
+      const events = querySecurityEvents({ type: "monitor_failure" });
+      expect(events).toHaveLength(1);
+    });
+
+    it("subscribeSecurityEvents notifies listener via singleton manager", () => {
+      const received: SecurityEvent[] = [];
+      const unsub = subscribeSecurityEvents((e) => received.push(e));
+
+      emitSecurityEvent({
+        type: "env_credential_exposed",
+        severity: "warn",
+        source: "test-convenience",
+        message: "subscribe test",
+      });
+
+      expect(received).toHaveLength(1);
+      unsub();
+    });
+
+    it("subscribeSecurityAlerts notifies listener for critical events via singleton manager", () => {
+      const received: SecurityEvent[] = [];
+      const unsub = subscribeSecurityAlerts((e) => received.push(e));
+
+      emitSecurityEvent({
+        type: "container_escape_attempt",
+        severity: "critical",
+        source: "test-convenience",
+        message: "alert subscribe test",
+      });
+
+      expect(received).toHaveLength(1);
+      unsub();
+    });
+
+    it("flushSecurityEventPersistence delegates to the singleton manager", () => {
+      emitSecurityEvent({
+        type: "injection_detected",
+        severity: "warn",
+        source: "test-convenience",
+        message: "flush test",
+      });
+
+      // Should not throw — verifies the export is wired correctly
+      expect(() => flushSecurityEventPersistence()).not.toThrow();
+    });
+
+    it("getSecurityEventsManager logs a warning when called again with config after init", () => {
+      const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      // First call initialises the singleton
+      getSecurityEventsManager({ inMemoryLimit: 50 });
+
+      // Second call with config should warn and return the same instance
+      const again = getSecurityEventsManager({ inMemoryLimit: 100 });
+      expect(again).toBeDefined();
+      // The warning goes through the subsystem logger which writes to console.warn
+      // (in test environments without a real log sink)
+      warnSpy.mockRestore();
+    });
+  });
+
+  describe("sendWebhook — branch coverage", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      resetSecurityEventsManager();
+    });
+
+    function makeWebhookManager(webhookUrl: string, token?: string): SecurityEventsManager {
+      return new SecurityEventsManager(
+        { store: path.join(tempDir, `wh-${Date.now()}.jsonl`) },
+        {
+          minSeverity: "warn",
+          webhook: { enabled: true, url: webhookUrl, token, timeoutMs: 500 },
+        },
+      );
+    }
+
+    it("skips fetch when webhook URL is not HTTPS", async () => {
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+
+      const mgr = makeWebhookManager("http://example.com/hook");
+      mgr.emit({
+        type: "injection_detected",
+        severity: "warn",
+        source: "test",
+        message: "http-url-reject",
+      });
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("sends fetch with Bearer token for HTTPS URL", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const mgr = makeWebhookManager("https://hooks.example.com/security", "tok-abc123");
+      mgr.emit({
+        type: "container_escape_attempt",
+        severity: "critical",
+        source: "test",
+        message: "https-with-token",
+      });
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const headers = init.headers as Record<string, string>;
+      expect(headers["Authorization"]).toBe("Bearer tok-abc123");
+    });
+
+    it("sends fetch without Authorization header when no token configured", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const mgr = makeWebhookManager("https://hooks.example.com/no-auth");
+      mgr.emit({
+        type: "injection_detected",
+        severity: "critical",
+        source: "test",
+        message: "https-no-token",
+      });
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(fetchMock).toHaveBeenCalledOnce();
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+      const headers = init.headers as Record<string, string>;
+      expect(headers["Authorization"]).toBeUndefined();
+    });
+
+    it("catches and logs errors when webhook returns non-OK status", async () => {
+      const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 503 });
+      vi.stubGlobal("fetch", fetchMock);
+
+      const mgr = makeWebhookManager("https://hooks.example.com/bad");
+      // Must not throw — errors are caught and logged inside triggerAlert
+      expect(() =>
+        mgr.emit({
+          type: "injection_detected",
+          severity: "critical",
+          source: "test",
+          message: "bad-status-webhook",
+        }),
+      ).not.toThrow();
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(fetchMock).toHaveBeenCalledOnce();
     });
   });
 

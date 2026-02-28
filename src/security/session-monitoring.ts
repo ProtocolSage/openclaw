@@ -167,31 +167,27 @@ export class SessionRiskMonitor {
       totalScore: session.totalScore,
     });
 
-    // Check threshold — warn alert fires once; critical auto-isolates independently
+    // Check threshold — warn alert fires once; critical re-emits full summary then isolates.
     //
-    // Design note (CQ-7): When a session's score escalates gradually from
+    // CQ-7 (fixed Sprint 16): When a session's score escalates gradually from
     // threshold → threshold*1.5 (critical), the warn alert fires at the initial
-    // crossing (setting alertedAt), but the subsequent auto-isolation in the else-if
-    // branch does NOT re-emit a full risk-factor summary event to the event bus.
-    // `isolateSession()` emits a "session_anomaly/critical" event with the score,
-    // but WITHOUT the individual risk-factor list that `emitHighRiskAlert()` includes.
-    // Observers that missed the initial warn event cannot reconstruct why the session
-    // was isolated without querying the session profile directly.
-    //
-    // This is a known gap: the fix would be to call `emitHighRiskAlert()` again when
-    // crossing the critical threshold, gated on `totalScore >= criticalThreshold &&
-    // session.alertedAt !== null` (i.e. initial warn was already sent). Deferred to
-    // avoid silent behaviour change in alerting subscribers.
+    // crossing (setting alertedAt). Previously the subsequent else-if branch only
+    // called isolateSession() directly, omitting the full risk-factor summary that
+    // emitHighRiskAlert() includes. The fix: call emitHighRiskAlert() in the
+    // else-if branch; it emits the critical event with complete factor context and
+    // then calls isolateSession() internally (gated on isCritical=true).
     const criticalThreshold = this.config.threshold * CRITICAL_MULTIPLIER;
     if (session.totalScore >= this.config.threshold && !session.alertedAt) {
       this.emitHighRiskAlert(session);
       session.alertedAt = now;
     } else if (
       session.totalScore >= criticalThreshold &&
+      session.alertedAt !== null &&
       !this.isolatedSessions.has(session.sessionKey)
     ) {
-      // Score crossed critical after the initial warn alert was already sent
-      this.isolateSession(session.sessionKey);
+      // CQ-7: Re-emit full risk-factor summary so observers get complete context.
+      // emitHighRiskAlert() calls isolateSession() internally for critical scores.
+      this.emitHighRiskAlert(session);
     }
 
     return session;
@@ -263,6 +259,14 @@ export class SessionRiskMonitor {
   clearAllSessions(): void {
     this.sessions.clear();
     this.isolatedSessions.clear();
+  }
+
+  /**
+   * Tear down the monitor: clear all session state. No timers are owned by
+   * this class so no timer cancellation is needed.
+   */
+  destroy(): void {
+    this.clearAllSessions();
   }
 
   /**
