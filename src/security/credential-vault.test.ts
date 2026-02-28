@@ -4,6 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   deleteCredential,
+  ensureVaultDir,
   getCredential,
   getCredentialsDueForRotation,
   hasCredential,
@@ -386,6 +387,15 @@ describe("credential-vault", () => {
       const result = validateCredentialFormat("abcdefghij1234567890ABCD", "unknown-service");
       expect(result.valid).toBe(true);
     });
+
+    it("accepts but warns for values with special characters that fail the generic regex", () => {
+      // Value contains spaces — passes length check but fails /^[A-Za-z0-9_-]{16,}$/.
+      // Name "custom-webhook" does not match any known provider key, so no specific
+      // validator applies.  The fallback path logs a warning and still returns
+      // valid:true (policy: warn, never block unknown formats).
+      const result = validateCredentialFormat("my webhook secret value!!", "custom-webhook");
+      expect(result.valid).toBe(true);
+    });
   });
 
   describe("plaintext → encrypted migration", () => {
@@ -452,6 +462,62 @@ describe("credential-vault", () => {
       const raw = fs.readFileSync(encPath, "utf8");
       expect(raw).not.toContain("sk-ant-api01-supersecrettoken1234");
       expect(() => JSON.parse(raw)).toThrow();
+    });
+  });
+
+  describe("ensureVaultDir", () => {
+    it("creates vault directory when it does not exist", () => {
+      const newVaultDir = path.join(testVaultDir, "nested", "vault");
+      expect(fs.existsSync(newVaultDir)).toBe(false);
+
+      ensureVaultDir({ vaultDir: newVaultDir });
+
+      expect(fs.existsSync(newVaultDir)).toBe(true);
+    });
+
+    it("is a no-op when vault directory already exists", () => {
+      // testVaultDir is created in beforeEach — this should not throw
+      expect(() => ensureVaultDir({ vaultDir: testVaultDir })).not.toThrow();
+      expect(fs.existsSync(testVaultDir)).toBe(true);
+    });
+  });
+
+  describe("getCredential — orphaned registry entry", () => {
+    it("returns NOT_FOUND when credential exists in registry but not in storage", () => {
+      storeCredential(
+        "orphan-test",
+        "sk-ant-api01-orphanvalue1234567890",
+        "provider",
+        vaultOptions,
+      );
+
+      // Remove encrypted store to simulate a corrupted/orphaned vault state
+      const encPath = path.join(testVaultDir, "credentials.enc");
+      if (fs.existsSync(encPath)) {
+        fs.unlinkSync(encPath);
+      }
+
+      const result = getCredential("orphan-test", "provider", "test", vaultOptions);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe("NOT_FOUND");
+        expect(result.error).toContain("not in storage");
+      }
+    });
+  });
+
+  describe("rotateCredential — validation failure", () => {
+    it("returns VALIDATION_FAILED when the new value is too short", () => {
+      storeCredential("rotate-validate", "initial-value-12345678", "provider", vaultOptions);
+
+      // "short" is below the minimum credential length — validateCredentialFormat rejects it
+      const result = rotateCredential("rotate-validate", "provider", "short", vaultOptions);
+
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.code).toBe("VALIDATION_FAILED");
+      }
     });
   });
 
