@@ -351,10 +351,20 @@ export class SecurityEventsManager {
 
   /**
    * Subscribe to security events.
+   *
+   * The listener may be async. Any rejection is caught and logged so that a
+   * failing subscriber never causes an uncaught-promise rejection or silently
+   * swallows the error (BP-12).
    */
   subscribe(listener: SecurityEventListener): () => void {
-    this.emitter.on("event", listener);
-    return () => this.emitter.off("event", listener);
+    const wrapper = (event: SecurityEvent) => {
+      // BP-12: catch and log async listener errors so they never swallow silently.
+      Promise.resolve(listener(event)).catch((err: unknown) => {
+        log.warn("security event listener error", { err });
+      });
+    };
+    this.emitter.on("event", wrapper);
+    return () => this.emitter.off("event", wrapper);
   }
 
   /**

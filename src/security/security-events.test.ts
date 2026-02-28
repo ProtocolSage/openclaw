@@ -699,6 +699,50 @@ describe("SecurityEventsManager", () => {
     });
   });
 
+  describe("subscribe — async listener error handling (BP-12)", () => {
+    it("does not propagate unhandled rejection when async listener throws", async () => {
+      const failingListener = async (_event: SecurityEvent): Promise<void> => {
+        throw new Error("listener boom");
+      };
+
+      manager.subscribe(failingListener);
+
+      // Should not throw synchronously or produce an unhandled rejection
+      expect(() =>
+        manager.emit({
+          type: "injection_detected",
+          severity: "warn",
+          source: "test",
+          message: "bp12-async-throw",
+        }),
+      ).not.toThrow();
+
+      // Let the microtask queue drain — rejection must be caught internally
+      await new Promise<void>((resolve) => setImmediate(resolve));
+    });
+
+    it("other subscribers still receive events when one listener throws (BP-12)", async () => {
+      const received: SecurityEvent[] = [];
+
+      manager.subscribe(async () => {
+        throw new Error("bad subscriber");
+      });
+      manager.subscribe((e) => {
+        received.push(e);
+      });
+
+      manager.emit({
+        type: "tool_abuse_detected",
+        severity: "warn",
+        source: "test",
+        message: "bp12-isolation",
+      });
+
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(received).toHaveLength(1);
+    });
+  });
+
   describe("triggerAlert — warn severity uses warn log method", () => {
     it("emits alert for warn-level event when minSeverity is warn", () => {
       const warnManager = new SecurityEventsManager(
