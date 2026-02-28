@@ -299,11 +299,11 @@ export function queryAuditLog(
     entries = entries.filter((e) => e.requestor === filters.requestor);
   }
 
-  if (filters.since) {
+  if (filters.since !== undefined) {
     entries = entries.filter((e) => e.timestamp >= filters.since!);
   }
 
-  if (filters.until) {
+  if (filters.until !== undefined) {
     entries = entries.filter((e) => e.timestamp <= filters.until!);
   }
 
