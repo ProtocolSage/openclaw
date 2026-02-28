@@ -179,6 +179,19 @@ describe("credential-audit", () => {
       const entries = queryAuditLog({ scope: "provider", action: "read" }, auditOptions);
       expect(entries).toHaveLength(1);
     });
+
+    it("should include all entries when since === 0 (BP-6: falsy-guard fix)", () => {
+      // since=0 means "epoch" — every entry qualifies. A truthiness guard
+      // (`if (filters.since)`) would skip this filter entirely only by accident;
+      // the correct guard is `!== undefined` so 0 is treated as a real bound.
+      const entries = queryAuditLog({ since: 0 }, auditOptions);
+      expect(entries).toHaveLength(5);
+    });
+
+    it("should include all entries when until is very large (BP-6: until guard)", () => {
+      const entries = queryAuditLog({ until: Number.MAX_SAFE_INTEGER }, auditOptions);
+      expect(entries).toHaveLength(5);
+    });
   });
 
   describe("verifyAuditLogIntegrity", () => {
