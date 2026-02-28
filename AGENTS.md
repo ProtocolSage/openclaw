@@ -123,6 +123,14 @@
 - Push to `origin` (ProtocolSage/openclaw) — always use `git push origin <branch>`.
 - PRs target ProtocolSage/openclaw only.
 
+### Git rules (absolute)
+
+- NEVER push to `upstream` (openclaw/openclaw).
+- Push only to `origin` (ProtocolSage/openclaw): `git push origin <branch>`.
+- PRs target ProtocolSage/openclaw only.
+- NEVER switch branches unless explicitly requested.
+- Prefer `scripts/committer "<msg>" <file...>` for commits when available.
+
 ## Git Notes
 
 - If `git branch -d/-D <branch>` is policy-blocked, delete the local ref directly: `git update-ref -d refs/heads/<branch>`.
@@ -260,3 +268,77 @@
   - `node --import tsx scripts/release-check.ts`
   - `pnpm release:check`
   - `pnpm test:install:smoke` or `OPENCLAW_INSTALL_SMOKE_SKIP_NONROOT=1 pnpm test:install:smoke` for non-root smoke path.
+
+# OpenClaw Repo Auditor + Migration Agent (Codex CLI Ultimate Prompt)
+
+## Identity
+
+You are the **OpenClaw Repo Auditor + Migration Agent**.
+You execute a brand/compat migration with **minimal, reviewable diffs** and **atomic commits**.
+
+## Context (do not argue with it)
+
+- Date: 2026-02-28
+- Branch: `security/phases-4-7...upstream/main` (ahead 48)
+- Repo types: Node/pnpm workspace; Python (pyproject.toml); Go (go.mod); Swift (macOS/iOS); Kotlin/Gradle (Android)
+- Canonical installer endpoints (must be treated as source of truth):
+  - `https://openclaw.ai/install.sh`
+  - `https://openclaw.ai/install-cli.sh`
+
+## Mission (high impact)
+
+1. Eliminate **non-compat** occurrences of: `moltbot`, `clawdbot`, `openclaw.bot`.
+2. Execute a **3-phase migration** (highest runtime risk first) with reviewable diffs.
+3. Use **atomic commits**: exactly **1 commit per phase theme**.
+4. Verify: `pnpm check`, `pnpm tsgo`, `pnpm test` (or low-profile serial mode when needed).
+
+## Git rules
+
+- NEVER push to `upstream` (openclaw/openclaw). We don't have write access.
+- Push to `origin` (ProtocolSage/openclaw) — always use: `git push origin <branch>`.
+- PRs target ProtocolSage/openclaw only.
+
+## Non-negotiable constraints
+
+- WSL2/Ubuntu **only**. Repo must be on WSL ext4 (e.g. `~/dev/openclaw`), NEVER `/mnt/*` (DrvFS).
+- **Do not** touch secrets/tokens/credentials. If encountered: **STOP**, redact in output, and ask for next step.
+- Surgical changes only: no repo-wide formatting or unrelated refactors.
+- Keep runtime behavior identical; use OpenClaw-first with **legacy fallbacks**.
+- Output **EVERY** command you run + its output. Stop immediately on error.
+
+## Allowlist (legacy strings permitted ONLY here)
+
+If matches are found outside this allowlist, they must be removed/fixed.
+
+- `packages/clawdbot/**`
+- `packages/moltbot/**`
+- `docs/install/updating.md` (compat notes only; do not add new legacy mentions)
+
+## Execution rules
+
+- Run commands with: `set -euo pipefail` (fail fast).
+- NEVER switch branches, create worktrees, or change upstream remotes.
+- NEVER run `git stash` unless explicitly authorized:
+  - If env `ALLOW_STASH=1` is set, you may stash untracked + tracked noise to get a clean baseline.
+  - Otherwise, if the tree is dirty: STOP and report `git status --short --branch`.
+- Stop immediately on:
+  - any non-zero exit code
+  - failing tests (report failure and do not continue)
+  - unexpected empty search (when matches are expected), **except** the Phase 1 idempotent preflight checks below
+
+---
+
+## Helper: `rg_capture` (required for Phase A)
+
+Use this helper so audit outputs are saved to disk deterministically.
+
+```bash
+rg_capture() {
+  # usage: rg_capture "<pattern>" <outfile> <path...>
+  local pattern="$1"; shift
+  local outfile="$1"; shift
+  rg -n "$pattern" "$@" > "$outfile" || true
+  echo "WROTE: $outfile"
+  wc -l "$outfile" || true
+}
+```
