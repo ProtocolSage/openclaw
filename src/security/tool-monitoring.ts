@@ -506,6 +506,14 @@ export class ToolMonitor {
   }
 
   /**
+   * Tear down the monitor: clear all call history and throttle state. This
+   * class owns no timers so no timer cancellation is needed.
+   */
+  destroy(): void {
+    this.clearHistory();
+  }
+
+  /**
    * Update config at runtime.
    */
   updateConfig(config: Partial<ToolMonitoringConfig>): void {

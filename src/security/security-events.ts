@@ -619,6 +619,19 @@ export class SecurityEventsManager {
     this.flushPendingWrites();
   }
 
+  /**
+   * Tear down the manager: flush pending writes, clear all in-memory state, and
+   * remove all listeners. After `destroy()` the instance is inert; obtain a
+   * fresh singleton via `getSecurityEventsManager()` after calling
+   * `resetSecurityEventsManager()`.
+   */
+  destroy(): void {
+    this.flushPendingWrites();
+    this.dedupeMap.clear();
+    this.ringBuffer = new RingBuffer(this.config.inMemoryLimit);
+    this.emitter.removeAllListeners();
+  }
+
   private rotateFile(storePath: string): void {
     try {
       const dir = path.dirname(storePath);

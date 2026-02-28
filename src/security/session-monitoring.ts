@@ -266,6 +266,14 @@ export class SessionRiskMonitor {
   }
 
   /**
+   * Tear down the monitor: clear all session state. No timers are owned by
+   * this class so no timer cancellation is needed.
+   */
+  destroy(): void {
+    this.clearAllSessions();
+  }
+
+  /**
    * Get statistics.
    */
   getStats(): {

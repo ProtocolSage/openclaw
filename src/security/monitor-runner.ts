@@ -217,6 +217,16 @@ export class MonitorRunner {
   }
 
   /**
+   * Tear down the runner: stop all timers and clear scan module registry.
+   * Delegates timer cleanup to `stop()`.
+   */
+  destroy(): void {
+    this.stop();
+    this.scanModules = [];
+    this.deepScanModules = [];
+  }
+
+  /**
    * Run a scan immediately.
    */
   async runScan(deep = false): Promise<ScanResult> {
