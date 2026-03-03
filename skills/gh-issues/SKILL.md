@@ -252,9 +252,9 @@ Run these checks sequentially via exec:
    Read the claims file (create empty `{}` if missing):
 
    ```
-   CLAIMS_FILE="/data/.clawdbot/gh-issues-claims.json"
+   CLAIMS_FILE="${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/gh-issues-claims.json"
    if [ ! -f "$CLAIMS_FILE" ]; then
-     mkdir -p /data/.clawdbot
+     mkdir -p "${OPENCLAW_STATE_DIR:-$HOME/.openclaw}"
      echo '{}' > "$CLAIMS_FILE"
    fi
    ```
@@ -287,7 +287,7 @@ Run these checks sequentially via exec:
 - **Sequential cursor tracking:** Use a cursor file to track which issue to process next:
 
   ```
-  CURSOR_FILE="/data/.clawdbot/gh-issues-cursor-{SOURCE_REPO_SLUG}.json"
+  CURSOR_FILE="${OPENCLAW_STATE_DIR:-$HOME/.openclaw}/gh-issues-cursor-{SOURCE_REPO_SLUG}.json"
   # SOURCE_REPO_SLUG = owner-repo with slashes replaced by hyphens (e.g., openclaw-openclaw)
   ```
 
@@ -375,13 +375,14 @@ Follow these steps in order. If any step fails, report the failure and stop.
 0. SETUP — Ensure GH_TOKEN is available:
 ```
 
-export GH_TOKEN=$(node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync('/data/.clawdbot/openclaw.json','utf8')); console.log(c.skills?.entries?.['gh-issues']?.apiKey || '')")
+GH_TOKEN=$(cat ~/.openclaw/openclaw.json 2>/dev/null | jq -r '.skills.entries["gh-issues"].apiKey // empty')
 
-```
-If that fails, also try:
-```
+# Legacy fallback for server deployments (OPENCLAW_STATE_DIR or /data/.clawdbot):
 
-export GH_TOKEN=$(cat ~/.openclaw/openclaw.json 2>/dev/null | node -e "const fs=require('fs');const d=JSON.parse(fs.readFileSync(0,'utf8'));console.log(d.skills?.entries?.['gh-issues']?.apiKey||'')")
+if [ -z "$GH_TOKEN" ]; then
+GH_TOKEN=$(cat "${OPENCLAW_STATE_DIR:-/data/.clawdbot}/openclaw.json" 2>/dev/null | jq -r '.skills.entries["gh-issues"].apiKey // empty')
+fi
+export GH_TOKEN
 
 ```
 Verify: echo "Token: ${GH_TOKEN:0:10}..."
@@ -745,7 +746,11 @@ Follow these steps in order:
 0. SETUP — Ensure GH_TOKEN is available:
 ```
 
-export GH_TOKEN=$(node -e "const fs=require('fs'); const c=JSON.parse(fs.readFileSync('/data/.clawdbot/openclaw.json','utf8')); console.log(c.skills?.entries?.['gh-issues']?.apiKey || '')")
+GH_TOKEN=$(cat ~/.openclaw/openclaw.json 2>/dev/null | jq -r '.skills.entries["gh-issues"].apiKey // empty')
+if [ -z "$GH_TOKEN" ]; then
+GH_TOKEN=$(cat "${OPENCLAW_STATE_DIR:-/data/.clawdbot}/openclaw.json" 2>/dev/null | jq -r '.skills.entries["gh-issues"].apiKey // empty')
+fi
+export GH_TOKEN
 
 ```
 Verify: echo "Token: ${GH_TOKEN:0:10}..."
