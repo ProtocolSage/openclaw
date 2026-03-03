@@ -802,7 +802,9 @@ describe("SecurityEventsManager", () => {
 
     it("subscribeSecurityEvents notifies listener via singleton manager", () => {
       const received: SecurityEvent[] = [];
-      const unsub = subscribeSecurityEvents((e) => received.push(e));
+      const unsub = subscribeSecurityEvents((e) => {
+        received.push(e);
+      });
 
       emitSecurityEvent({
         type: "env_credential_exposed",
@@ -817,7 +819,9 @@ describe("SecurityEventsManager", () => {
 
     it("subscribeSecurityAlerts notifies listener for critical events via singleton manager", () => {
       const received: SecurityEvent[] = [];
-      const unsub = subscribeSecurityAlerts((e) => received.push(e));
+      const unsub = subscribeSecurityAlerts((e) => {
+        received.push(e);
+      });
 
       emitSecurityEvent({
         type: "container_escape_attempt",

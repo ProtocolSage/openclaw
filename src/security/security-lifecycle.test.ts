@@ -24,7 +24,9 @@ import { getToolMonitor, resetToolMonitor } from "./tool-monitoring.js";
 // ---------------------------------------------------------------------------
 
 const testConfig: SecurityLifecycleConfig = {
-  events: { persistEvents: false },
+  events: {
+    /* in-memory only: omit `store` */
+  },
   runner: { enabled: false },
   registerBuiltinScanModules: false,
 };
@@ -79,8 +81,8 @@ describe("SecurityLifecycle", () => {
 
       // Emit a couple of events
       const mgr = getSecurityEventsManager();
-      mgr.emit({ type: "scan_complete", severity: "info", source: "test", message: "a" });
-      mgr.emit({ type: "scan_complete", severity: "info", source: "test", message: "b" });
+      mgr.emit({ type: "env_credential_exposed", severity: "info", source: "test", message: "a" });
+      mgr.emit({ type: "env_credential_exposed", severity: "info", source: "test", message: "b" });
 
       expect(mgr.query().length).toBeGreaterThan(0);
 
@@ -96,7 +98,7 @@ describe("SecurityLifecycle", () => {
       lc.initAll(testConfig);
 
       const monitor = getSessionRiskMonitor();
-      monitor.addRiskFactor("session-1", { name: "tool_call_volume", score: 10 });
+      monitor.addRiskFactor("session-1", "TOOL_ABUSE", { score: 10 });
 
       expect(monitor.getStats().totalSessions).toBeGreaterThan(0);
 
@@ -110,7 +112,7 @@ describe("SecurityLifecycle", () => {
       const clearIntervalSpy = vi.spyOn(globalThis, "clearInterval");
 
       const lc = new SecurityLifecycle();
-      lc.initAll({ ...testConfig, runner: { enabled: true, intervalMs: 60_000 } });
+      lc.initAll({ ...testConfig, runner: { enabled: true, every: "1m" } });
 
       const runner = getMonitorRunner();
       runner.start();
@@ -131,8 +133,13 @@ describe("SecurityLifecycle", () => {
 
       // Dirty the state
       const mgr = getSecurityEventsManager();
-      mgr.emit({ type: "scan_complete", severity: "info", source: "test", message: "dirty" });
-      getSessionRiskMonitor().addRiskFactor("s1", { name: "tool_call_volume", score: 10 });
+      mgr.emit({
+        type: "env_credential_exposed",
+        severity: "info",
+        source: "test",
+        message: "dirty",
+      });
+      getSessionRiskMonitor().addRiskFactor("s1", "TOOL_ABUSE", { score: 10 });
 
       lc.resetAll(testConfig);
 
@@ -157,7 +164,7 @@ describe("SecurityLifecycle", () => {
 
       // Emit an event to dirty the state
       getSecurityEventsManager().emit({
-        type: "scan_complete",
+        type: "env_credential_exposed",
         severity: "info",
         source: "test",
         message: "first",
