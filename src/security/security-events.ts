@@ -441,7 +441,7 @@ export class SecurityEventsManager {
       if (filters.agentId) {
         events = events.filter((e) => e.agentId === filters.agentId);
       }
-      if (filters.offset) {
+      if (filters.offset !== undefined) {
         events = events.slice(filters.offset);
       }
       if (filters.limit) {
@@ -648,11 +648,11 @@ export class SecurityEventsManager {
       const base = path.basename(storePath, ".jsonl");
 
       // Rotate existing files
-      for (let i = MAX_ROTATED_FILES - 1; i >= 1; i--) {
+      for (let i = MAX_ROTATED_FILES; i >= 1; i--) {
         const from = path.join(dir, `${base}.${i}.jsonl`);
         const to = path.join(dir, `${base}.${i + 1}.jsonl`);
         if (fs.existsSync(from)) {
-          if (i === MAX_ROTATED_FILES - 1) {
+          if (i === MAX_ROTATED_FILES) {
             fs.unlinkSync(from);
           } else {
             fs.renameSync(from, to);

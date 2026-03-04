@@ -68,6 +68,7 @@ export const RISK_FACTORS = {
   CREDENTIAL_FILE_ACCESS: { name: "credential_file_access", baseScore: 20 },
 
   // Pattern-related risks
+  TOOL_ABUSE: { name: "tool_abuse", baseScore: 10 },
   RAPID_TOOL_CALLS: { name: "rapid_tool_calls", baseScore: 10 },
   FILE_ENUMERATION: { name: "file_enumeration", baseScore: 15 },
   ABUSE_PATTERN_MATCH: { name: "abuse_pattern_match", baseScore: 30 },
@@ -315,6 +316,9 @@ export class SessionRiskMonitor {
     }
     if (config.decayPerMinute !== undefined) {
       this.config.decayPerMinute = config.decayPerMinute;
+    }
+    if (config.maxSessions !== undefined) {
+      this.config.maxSessions = config.maxSessions;
     }
   }
 

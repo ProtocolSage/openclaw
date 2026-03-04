@@ -121,11 +121,11 @@ function rotateAuditLogIfNeeded(options?: AuditOptions): void {
 
   // Rotate existing files
   const auditDir = resolveAuditDir(options);
-  for (let i = MAX_ROTATED_FILES - 1; i >= 1; i--) {
+  for (let i = MAX_ROTATED_FILES; i >= 1; i--) {
     const from = path.join(auditDir, `audit.${i}.jsonl`);
     const to = path.join(auditDir, `audit.${i + 1}.jsonl`);
     if (fs.existsSync(from)) {
-      if (i === MAX_ROTATED_FILES - 1) {
+      if (i === MAX_ROTATED_FILES) {
         fs.unlinkSync(from); // Delete oldest
       } else {
         fs.renameSync(from, to);

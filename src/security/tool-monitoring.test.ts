@@ -7,8 +7,9 @@ import { resetSecurityEventsManager } from "./security-events.js";
 import {
   ToolMonitor,
   resetToolMonitor,
-  type ToolCall,
   type AbusePattern,
+  type PatternMatch,
+  type ToolCall,
 } from "./tool-monitoring.js";
 
 describe("ToolMonitor", () => {
@@ -93,21 +94,20 @@ describe("ToolMonitor", () => {
     it("should detect rapid bash execution", () => {
       const now = Date.now();
 
-      // Simulate rapid bash execution (20+ calls with < 1s average)
+      // 25 bash calls at 500ms intervals — threshold: 20 calls, avg < 1000ms
+      // Accumulate all matches; dedup cache suppresses re-fires after the first.
+      const allMatches: PatternMatch[] = [];
       for (let i = 0; i < 25; i++) {
-        monitor.record({
-          tool: "bash",
-          timestamp: now + i * 500, // 500ms apart
-        });
+        allMatches.push(...monitor.record({ tool: "bash", timestamp: now + i * 500 }));
       }
 
-      const stats = monitor.getWindowStats();
-      expect(stats.totalCalls).toBe(25);
-      // Pattern should have been detected
+      expect(allMatches.some((m) => m.pattern === "rapid_bash_execution")).toBe(true);
+      expect(monitor.getWindowStats().totalCalls).toBe(25);
     });
 
     it("should detect file enumeration", () => {
       const now = Date.now();
+      // 10 paths needed to cross fsCalls >= 10 threshold; all match sensitive patterns
       const sensitivePaths = [
         ".env",
         ".ssh/id_rsa",
@@ -115,42 +115,39 @@ describe("ToolMonitor", () => {
         "secrets.json",
         ".gnupg/private-keys",
         ".npmrc",
+        ".pypirc",
+        ".config/token",
+        "/etc/passwd",
+        "/etc/shadow",
       ];
 
+      let lastMatches: PatternMatch[] = [];
       for (let i = 0; i < sensitivePaths.length; i++) {
-        monitor.record({
+        lastMatches = monitor.record({
           tool: "read",
           timestamp: now + i * 1000,
           args: { path: sensitivePaths[i] },
         });
       }
 
-      const stats = monitor.getWindowStats();
-      expect(stats.byTool.read).toBe(6);
+      expect(lastMatches.some((m) => m.pattern === "file_enumeration")).toBe(true);
+      expect(monitor.getWindowStats().byTool.read).toBe(10);
     });
 
     it("should detect credential harvesting", () => {
       const now = Date.now();
 
-      // Access multiple credential files
-      monitor.record({
-        tool: "read",
-        timestamp: now,
-        args: { path: "/home/user/.env" },
-      });
-      monitor.record({
-        tool: "read",
-        timestamp: now + 1000,
-        args: { path: "/home/user/.npmrc" },
-      });
-      monitor.record({
+      // 3 unique credential paths — threshold: uniquePaths.size >= 3
+      monitor.record({ tool: "read", timestamp: now, args: { path: "/home/user/.env" } });
+      monitor.record({ tool: "read", timestamp: now + 1000, args: { path: "/home/user/.npmrc" } });
+      const lastMatches = monitor.record({
         tool: "read",
         timestamp: now + 2000,
         args: { path: "/home/user/.aws/credentials" },
       });
 
-      const stats = monitor.getWindowStats();
-      expect(stats.byTool.read).toBe(3);
+      expect(lastMatches.some((m) => m.pattern === "credential_harvesting")).toBe(true);
+      expect(monitor.getWindowStats().byTool.read).toBe(3);
     });
   });
 
