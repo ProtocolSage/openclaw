@@ -141,10 +141,11 @@ export async function scanStatus(
       progress.tick();
 
       progress.setLabel("Summarizing channels…");
+      const showSecretsEnv = process.env.OPENCLAW_SHOW_SECRETS || process.env.CLAWDBOT_SHOW_SECRETS;
       const channels = await buildChannelsTable(cfg, {
         // Show token previews in regular status; keep `status --all` redacted.
-        // Set `CLAWDBOT_SHOW_SECRETS=0` to force redaction.
-        showSecrets: process.env.CLAWDBOT_SHOW_SECRETS?.trim() !== "0",
+        // Set `OPENCLAW_SHOW_SECRETS=0` to force redaction.
+        showSecrets: showSecretsEnv?.trim() !== "0",
       });
       progress.tick();
 

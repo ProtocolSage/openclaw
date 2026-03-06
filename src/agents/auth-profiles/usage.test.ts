@@ -693,14 +693,14 @@ describe("checkAuthProfileRateLimit", () => {
 
   it("allows again after the window expires", async () => {
     setup();
-    const shortOpts = { windowMs: 10, maxAttempts: 2 };
+    const shortOpts = { windowMs: 50, maxAttempts: 2 };
 
     checkAuthProfileRateLimit(profileId, shortOpts);
     checkAuthProfileRateLimit(profileId, shortOpts);
     expect(checkAuthProfileRateLimit(profileId, shortOpts).allowed).toBe(false);
 
-    // Wait for window to expire
-    await new Promise((r) => setTimeout(r, 20));
+    // Wait for window to expire (2× margin to avoid timing flakes under load)
+    await new Promise((r) => setTimeout(r, 120));
 
     expect(checkAuthProfileRateLimit(profileId, shortOpts).allowed).toBe(true);
   });

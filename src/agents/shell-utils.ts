@@ -99,7 +99,8 @@ function normalizeShellName(value: string): string {
 }
 
 export function detectRuntimeShell(): string | undefined {
-  const overrideShell = process.env.CLAWDBOT_SHELL?.trim();
+  const overrideShellRaw = process.env.OPENCLAW_SHELL || process.env.CLAWDBOT_SHELL;
+  const overrideShell = overrideShellRaw?.trim();
   if (overrideShell) {
     const name = normalizeShellName(overrideShell);
     if (name) {
