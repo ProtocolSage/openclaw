@@ -1134,3 +1134,66 @@ export async function collectInstalledSkillsCodeSafetyFindings(params: {
 
   return findings;
 }
+
+export async function collectWorkspaceSkillSymlinkEscapeFindings(params: {
+  cfg: OpenClawConfig;
+  stateDir: string;
+}): Promise<SecurityAuditFinding[]> {
+  const findings: SecurityAuditFinding[] = [];
+  const pluginExtensionsDir = path.join(params.stateDir, "extensions");
+  const scannedSkillDirs = new Set<string>();
+  const workspaceDirs = listAgentWorkspaceDirs(params.cfg);
+
+  for (const workspaceDir of workspaceDirs) {
+    const entries = loadWorkspaceSkillEntries(workspaceDir, { config: params.cfg });
+    for (const entry of entries) {
+      if (entry.skill.source === "openclaw-bundled") {
+        continue;
+      }
+
+      const skillDir = path.resolve(entry.skill.baseDir);
+      if (isPathInside(pluginExtensionsDir, skillDir)) {
+        continue;
+      }
+      if (scannedSkillDirs.has(skillDir)) {
+        continue;
+      }
+      scannedSkillDirs.add(skillDir);
+
+      const skillName = entry.skill.name;
+      const absolute = skillDir;
+      const parts: string[] = [];
+      let cursor = absolute;
+      while (true) {
+        parts.unshift(cursor);
+        const parent = path.dirname(cursor);
+        if (parent === cursor) {
+          break;
+        }
+        cursor = parent;
+      }
+
+      for (const component of parts) {
+        let lstat: Awaited<ReturnType<typeof fs.lstat>>;
+        try {
+          lstat = await fs.lstat(component);
+        } catch {
+          continue;
+        }
+        if (lstat.isSymbolicLink()) {
+          const parentDir = path.dirname(component);
+          findings.push({
+            checkId: "fs.workspace_skill.symlink_escape",
+            severity: "warn",
+            title: `Skill "${skillName}" path contains a symlink component`,
+            detail: `Path component "${component}" (parent: "${parentDir}") is a symbolic link. A symlink in the skill path could allow a path-escape attack if the link target is attacker-controlled.`,
+            remediation: `Ensure "${component}" is not writable by untrusted users, or move the skill to a path without symlink components.`,
+          });
+          break;
+        }
+      }
+    }
+  }
+
+  return findings;
+}
