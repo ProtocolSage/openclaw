@@ -76,3 +76,7 @@ af1f6b888 | ci | pass | 2026-03-09T11:15:58Z | local: pnpm check; pnpm tsgo; NOD
 3fde97185 | ci | pass | 2026-03-09T12:54:58Z | local: nvm use 22.12.0; pnpm check; pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
 65a32992b | intent | replayed upstream private-network citation redirect hardening with deterministic validation on recovery branch | 2026-03-09T12:54:58Z
 65a32992b | ci | pass | 2026-03-09T12:54:58Z | local: nvm use 22.12.0; pnpm check; pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
+17e5d9d66 | intent | fail-close node camera URL downloads so unsafe or ambiguous fetch paths do not proceed | 2026-03-09T13:02:00Z
+17e5d9d66 | ci | pass | 2026-03-09T13:02:00Z | local: nvm use 22.12.0; pnpm check; pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
+59741918c | intent | replayed upstream node camera download hardening on recovery branch with deterministic validation gates | 2026-03-09T13:02:00Z
+59741918c | ci | pass | 2026-03-09T13:02:00Z | local: nvm use 22.12.0; pnpm check; pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test

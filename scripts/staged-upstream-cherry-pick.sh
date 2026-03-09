@@ -22,19 +22,6 @@ P0_SECURITY_COMMITS=(
   3f0b9dbb3
   e80c803fa
   55cf92578
-  dc825e59f
-  500d7cb10
-  dded56962
-  c8ebd48e0
-  8da8756f7
-  21d6d878c
-  31c7637e0
-  da0e245db
-  944abe0a6
-  18f8393b6
-  c823a8530
-  085c23ce5
-  3bf19d6f4
   72cf9253f
   806803b7e
   8a4d8c889

@@ -81,6 +81,7 @@ jobs:
 
       - name: Run low-profile tests
         env:
+          NODE_OPTIONS: --experimental-sqlite
           OPENCLAW_TEST_PROFILE: low
           OPENCLAW_TEST_SERIAL_GATEWAY: "1"
         run: pnpm test
