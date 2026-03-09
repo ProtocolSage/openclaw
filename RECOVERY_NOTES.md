@@ -50,3 +50,5 @@ d01794c01 | intent | escape regex literals in allowlist path matching while pres
 d01794c01 | ci | pass | 2026-03-09T06:19:46Z | local: pnpm check; pnpm tsgo; OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
 7646b97fd | intent | harden allowlist regex literal handling to eliminate token/character-class bypasses | 2026-03-09T06:44:39Z
 7646b97fd | ci | pass | 2026-03-09T06:44:39Z | local: pnpm check; pnpm tsgo; OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
+5f240e935 | intent | block quantified ambiguous alternation regex patterns in security checks | 2026-03-09T07:09:47Z
+5f240e935 | ci | pass | 2026-03-09T07:09:47Z | local: pnpm check; pnpm tsgo; OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
