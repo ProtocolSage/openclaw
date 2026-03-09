@@ -36,3 +36,7 @@ Quarantine format:
 
 Dry-run artifact format:
 dryrun | <artifact-or-comment-url> | <summary> | <timestamp>
+
+signoff | ProtocolSage | ProtocolSage | https://github.com/ProtocolSage/openclaw/pull/17 | 2026-03-09T04:23:00Z
+dryrun | https://gist.github.com/ProtocolSage/f97ffe876f54fac55d2da0c60b872658 | throwaway clone replayed 11/11 locked SHAs cleanly from c8646db9b | 2026-03-09T04:21:06Z
+dryrun | https://github.com/ProtocolSage/openclaw/pull/17#issuecomment-4021003079 | dry-run artifacts and sign-off posted in PR thread | 2026-03-09T04:23:00Z
