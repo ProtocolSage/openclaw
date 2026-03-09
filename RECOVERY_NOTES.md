@@ -60,3 +60,9 @@ fddb93e51 | ci | pass | 2026-03-09T08:12:21Z | local: NODE_OPTIONS=--experimenta
 1df33fd5c | ci | pass | 2026-03-09T08:41:10Z | local: NODE_OPTIONS=--experimental-sqlite pnpm check; NODE_OPTIONS=--experimental-sqlite pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
 7dc213181 | intent | replayed upstream ACL-localization hardening commit on recovery branch with deterministic validation gates | 2026-03-09T08:41:10Z
 7dc213181 | ci | pass | 2026-03-09T08:41:10Z | local: NODE_OPTIONS=--experimental-sqlite pnpm check; NODE_OPTIONS=--experimental-sqlite pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
+51b0bfe5e | intent | harden sandbox writes and atomic file operations while preserving sandbox boundary enforcement semantics | 2026-03-09T10:00:24Z
+51b0bfe5e | ci | pass | 2026-03-09T10:00:24Z | local: NODE_OPTIONS=--experimental-sqlite pnpm check; NODE_OPTIONS=--experimental-sqlite pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
+6403319ea | intent | replayed upstream sandbox write hardening commit on recovery branch and validated against full low-profile test lanes | 2026-03-09T10:00:24Z
+6403319ea | ci | pass | 2026-03-09T10:00:24Z | local: NODE_OPTIONS=--experimental-sqlite pnpm check; NODE_OPTIONS=--experimental-sqlite pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
+220a17eeb | intent | stabilize mkdirp boundary checks for existing directories and fail-closed on existing non-directory targets | 2026-03-09T10:00:24Z
+220a17eeb | ci | pass | 2026-03-09T10:00:24Z | local: NODE_OPTIONS=--experimental-sqlite pnpm check; NODE_OPTIONS=--experimental-sqlite pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
