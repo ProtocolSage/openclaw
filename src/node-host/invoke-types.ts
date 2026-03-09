@@ -36,6 +36,20 @@ export type ExecEventPayload = {
   reason?: string;
 };
 
+export type ExecFinishedEventParams = {
+  sessionKey: string;
+  runId: string;
+  cmdText: string;
+  result: {
+    stdout?: string;
+    stderr?: string;
+    error?: string | null;
+    exitCode?: number | null;
+    timedOut?: boolean;
+    success?: boolean;
+  };
+};
+
 export type SkillBinsProvider = {
   current(force?: boolean): Promise<SkillBinTrustEntry[]>;
 };

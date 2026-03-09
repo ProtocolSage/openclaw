@@ -9,6 +9,7 @@ export const DEFAULT_SAFE_BINS = ["jq", "cut", "uniq", "head", "tail", "tr", "wc
 export type CommandResolution = {
   rawExecutable: string;
   resolvedPath?: string;
+  resolvedRealPath?: string;
   executableName: string;
   effectiveArgv?: string[];
   wrapperChain?: string[];
@@ -96,10 +97,12 @@ export function resolveCommandResolution(
     return null;
   }
   const resolvedPath = resolveExecutablePath(rawExecutable, cwd, env);
+  const resolvedRealPath = resolvedPath ? (tryRealpath(resolvedPath) ?? resolvedPath) : undefined;
   const executableName = resolvedPath ? path.basename(resolvedPath) : rawExecutable;
   return {
     rawExecutable,
     resolvedPath,
+    resolvedRealPath,
     executableName,
     effectiveArgv: [rawExecutable],
     wrapperChain: [],
@@ -119,10 +122,12 @@ export function resolveCommandResolutionFromArgv(
     return null;
   }
   const resolvedPath = resolveExecutablePath(rawExecutable, cwd, env);
+  const resolvedRealPath = resolvedPath ? (tryRealpath(resolvedPath) ?? resolvedPath) : undefined;
   const executableName = resolvedPath ? path.basename(resolvedPath) : rawExecutable;
   return {
     rawExecutable,
     resolvedPath,
+    resolvedRealPath,
     executableName,
     effectiveArgv,
     wrapperChain: plan.wrappers,

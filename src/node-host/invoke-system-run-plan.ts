@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import type { SystemRunApprovalPlan } from "../infra/exec-approvals.js";
+import type { SystemRunApprovalPlanV2 } from "../infra/exec-approvals.js";
 import { resolveCommandResolutionFromArgv } from "../infra/exec-command-resolution.js";
 import { sameFileIdentity } from "../infra/file-identity.js";
 import { formatExecCommand, resolveSystemRunCommand } from "../infra/system-run-command.js";
@@ -137,6 +137,7 @@ export function revalidateApprovedCwdSnapshot(params: { snapshot: ApprovedCwdSna
 
 export function hardenApprovedExecutionPaths(params: {
   approvedByAsk: boolean;
+  pinAllowlistExecutable?: boolean;
   argv: string[];
   shellCommand: string | null;
   cwd: string | undefined;
@@ -149,7 +150,7 @@ export function hardenApprovedExecutionPaths(params: {
       approvedCwdSnapshot: ApprovedCwdSnapshot | undefined;
     }
   | { ok: false; message: string } {
-  if (!params.approvedByAsk) {
+  if (!params.approvedByAsk && !params.pinAllowlistExecutable) {
     return {
       ok: true,
       argv: params.argv,
@@ -161,7 +162,7 @@ export function hardenApprovedExecutionPaths(params: {
 
   let hardenedCwd = params.cwd;
   let approvedCwdSnapshot: ApprovedCwdSnapshot | undefined;
-  if (hardenedCwd) {
+  if (params.approvedByAsk && hardenedCwd) {
     const canonicalCwd = resolveCanonicalApprovalCwdSync(hardenedCwd);
     if (!canonicalCwd.ok) {
       return canonicalCwd;
@@ -234,7 +235,7 @@ export function buildSystemRunApprovalPlan(params: {
   cwd?: unknown;
   agentId?: unknown;
   sessionKey?: unknown;
-}): { ok: true; plan: SystemRunApprovalPlan; cmdText: string } | { ok: false; message: string } {
+}): { ok: true; plan: SystemRunApprovalPlanV2; cmdText: string } | { ok: false; message: string } {
   const command = resolveSystemRunCommand({
     command: params.command,
     rawCommand: params.rawCommand,
@@ -260,6 +261,7 @@ export function buildSystemRunApprovalPlan(params: {
   return {
     ok: true,
     plan: {
+      version: 2,
       argv: hardening.argv,
       cwd: hardening.cwd ?? null,
       rawCommand,
@@ -268,4 +270,14 @@ export function buildSystemRunApprovalPlan(params: {
     },
     cmdText: command.cmdText,
   };
+}
+
+export function buildSystemRunApprovalPlanV2(params: {
+  command?: unknown;
+  rawCommand?: unknown;
+  cwd?: unknown;
+  agentId?: unknown;
+  sessionKey?: unknown;
+}): { ok: true; plan: SystemRunApprovalPlanV2; cmdText: string } | { ok: false; message: string } {
+  return buildSystemRunApprovalPlan(params);
 }
