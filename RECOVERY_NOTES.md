@@ -52,3 +52,7 @@ d01794c01 | ci | pass | 2026-03-09T06:19:46Z | local: pnpm check; pnpm tsgo; OPE
 7646b97fd | ci | pass | 2026-03-09T06:44:39Z | local: pnpm check; pnpm tsgo; OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
 5f240e935 | intent | block quantified ambiguous alternation regex patterns in security checks | 2026-03-09T07:09:47Z
 5f240e935 | ci | pass | 2026-03-09T07:09:47Z | local: pnpm check; pnpm tsgo; OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
+c5d011376 | intent | adopt prototype-chain account-path hardening while preserving existing recovery-branch i18n/runtime contracts | 2026-03-09T08:12:21Z
+c5d011376 | ci | pass | 2026-03-09T08:12:21Z | local: NODE_OPTIONS=--experimental-sqlite pnpm check; NODE_OPTIONS=--experimental-sqlite pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
+fddb93e51 | intent | stabilize i18n locale registry test against current recovery baseline without browser-global dependencies | 2026-03-09T08:12:21Z
+fddb93e51 | ci | pass | 2026-03-09T08:12:21Z | local: NODE_OPTIONS=--experimental-sqlite pnpm check; NODE_OPTIONS=--experimental-sqlite pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
