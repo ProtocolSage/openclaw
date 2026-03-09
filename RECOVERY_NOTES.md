@@ -56,3 +56,7 @@ c5d011376 | intent | adopt prototype-chain account-path hardening while preservi
 c5d011376 | ci | pass | 2026-03-09T08:12:21Z | local: NODE_OPTIONS=--experimental-sqlite pnpm check; NODE_OPTIONS=--experimental-sqlite pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
 fddb93e51 | intent | stabilize i18n locale registry test against current recovery baseline without browser-global dependencies | 2026-03-09T08:12:21Z
 fddb93e51 | ci | pass | 2026-03-09T08:12:21Z | local: NODE_OPTIONS=--experimental-sqlite pnpm check; NODE_OPTIONS=--experimental-sqlite pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
+1df33fd5c | intent | recognize localized Windows SYSTEM account principals in ACL auditing to reduce false negatives/positives in security posture checks | 2026-03-09T08:41:10Z
+1df33fd5c | ci | pass | 2026-03-09T08:41:10Z | local: NODE_OPTIONS=--experimental-sqlite pnpm check; NODE_OPTIONS=--experimental-sqlite pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
+7dc213181 | intent | replayed upstream ACL-localization hardening commit on recovery branch with deterministic validation gates | 2026-03-09T08:41:10Z
+7dc213181 | ci | pass | 2026-03-09T08:41:10Z | local: NODE_OPTIONS=--experimental-sqlite pnpm check; NODE_OPTIONS=--experimental-sqlite pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
