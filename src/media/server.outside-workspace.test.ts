@@ -47,13 +47,13 @@ describe("media server outside-workspace mapping", () => {
     mediaDir = "";
   });
 
-  it("returns 400 with a specific outside-workspace message", async () => {
+  it("returns 400 for invalid-path safe-open failures", async () => {
     mocks.readFileWithinRoot.mockRejectedValueOnce(
-      new SafeOpenError("outside-workspace", "file is outside workspace root"),
+      new SafeOpenError("invalid-path", "path escapes root"),
     );
 
     const response = await fetch(`http://127.0.0.1:${port}/media/ok-id`);
     expect(response.status).toBe(400);
-    expect(await response.text()).toBe("file is outside workspace root");
+    expect(await response.text()).toBe("invalid path");
   });
 });
