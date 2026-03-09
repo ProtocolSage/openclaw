@@ -23,6 +23,7 @@ type PathSafetyOptions = {
   aliasPolicy?: PathAliasPolicy;
   requireWritable?: boolean;
   allowMissingTarget?: boolean;
+  allowExistingDirectoryTarget?: boolean;
 };
 
 export type SandboxResolvedPath = {
@@ -140,7 +141,17 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
   async mkdirp(params: { filePath: string; cwd?: string; signal?: AbortSignal }): Promise<void> {
     const target = this.resolveResolvedPath(params);
     this.ensureWriteAccess(target, "create directories");
-    await this.assertPathSafety(target, { action: "create directories", requireWritable: true });
+    const existingType = this.getHostPathType(target.hostPath);
+    if (existingType === "other") {
+      throw new Error(
+        `Sandbox boundary checks failed; cannot create directories: ${target.containerPath}`,
+      );
+    }
+    await this.assertPathSafety(target, {
+      action: "create directories",
+      requireWritable: true,
+      allowExistingDirectoryTarget: true,
+    });
     await this.runCommand('set -eu; mkdir -p -- "$1"', {
       args: [target.containerPath],
       signal: params.signal,
@@ -268,7 +279,12 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
       aliasPolicy: options.aliasPolicy,
     });
     if (!guarded.ok) {
-      if (guarded.reason !== "path" || options.allowMissingTarget === false) {
+      const canFallbackToDirectoryTarget =
+        options.allowExistingDirectoryTarget && this.pathIsExistingDirectory(target.hostPath);
+      if (
+        !canFallbackToDirectoryTarget &&
+        (guarded.reason !== "path" || options.allowMissingTarget === false)
+      ) {
         throw guarded.error instanceof Error
           ? guarded.error
           : new Error(
@@ -294,6 +310,19 @@ class SandboxFsBridgeImpl implements SandboxFsBridge {
         `Sandbox path is read-only; cannot ${options.action}: ${target.containerPath}`,
       );
     }
+  }
+
+  private getHostPathType(hostPath: string): "missing" | "directory" | "other" {
+    try {
+      const stat = fs.statSync(hostPath);
+      return stat.isDirectory() ? "directory" : "other";
+    } catch {
+      return "missing";
+    }
+  }
+
+  private pathIsExistingDirectory(hostPath: string): boolean {
+    return this.getHostPathType(hostPath) === "directory";
   }
 
   private resolveMountByContainerPath(containerPath: string): SandboxFsMount | null {
