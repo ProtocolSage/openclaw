@@ -72,3 +72,7 @@ af1f6b888 | intent | replayed upstream sandbox media TOCTOU hardening on recover
 af1f6b888 | ci | pass | 2026-03-09T11:15:58Z | local: pnpm check; pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
 590175016 | intent | align media-path tests to recovery baseline invalid-path semantics without weakening escape protections | 2026-03-09T11:15:58Z
 590175016 | ci | pass | 2026-03-09T11:15:58Z | local: pnpm check; pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
+3fde97185 | intent | block private-network web_search citation redirects to fail-closed on internal network targets | 2026-03-09T12:54:58Z
+3fde97185 | ci | pass | 2026-03-09T12:54:58Z | local: nvm use 22.12.0; pnpm check; pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
+65a32992b | intent | replayed upstream private-network citation redirect hardening with deterministic validation on recovery branch | 2026-03-09T12:54:58Z
+65a32992b | ci | pass | 2026-03-09T12:54:58Z | local: nvm use 22.12.0; pnpm check; pnpm tsgo; NODE_OPTIONS=--experimental-sqlite OPENCLAW_TEST_PROFILE=low OPENCLAW_TEST_SERIAL_GATEWAY=1 pnpm test
