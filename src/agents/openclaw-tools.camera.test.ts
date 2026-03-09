@@ -99,6 +99,7 @@ function createSystemRunPreparePayload(cwd: string | null) {
     payload: {
       cmdText: "echo hi",
       plan: {
+        version: 2,
         argv: ["echo", "hi"],
         cwd,
         rawCommand: "echo hi",
@@ -537,7 +538,7 @@ describe("nodes run", () => {
           id: expect.any(String),
           command: "echo hi",
           commandArgv: ["echo", "hi"],
-          systemRunPlan: expect.objectContaining({
+          systemRunPlanV2: expect.objectContaining({
             argv: ["echo", "hi"],
           }),
           nodeId: NODE_ID,

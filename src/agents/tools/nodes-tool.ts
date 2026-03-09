@@ -18,7 +18,7 @@ import {
 } from "../../cli/nodes-screen.js";
 import { parseDurationMs } from "../../cli/parse-duration.js";
 import type { OpenClawConfig } from "../../config/config.js";
-import { formatExecCommand } from "../../infra/system-run-command.js";
+import { parsePreparedSystemRunPayload } from "../../infra/system-run-approval-context.js";
 import { imageMimeFromFormat } from "../../media/mime.js";
 import type { GatewayMessageChannel } from "../../utils/message-channel.js";
 import { resolveSessionAgentId } from "../agent-scope.js";
@@ -565,18 +565,38 @@ export function createNodesTool(options?: {
               }
             }
 
+            const preparedRun = await callGatewayTool<{ payload?: unknown }>(
+              "node.invoke",
+              gatewayOpts,
+              {
+                nodeId,
+                command: "system.run.prepare",
+                params: {
+                  command,
+                  cwd,
+                  agentId,
+                  sessionKey,
+                },
+                idempotencyKey: crypto.randomUUID(),
+              },
+            );
+            const preparedContext = parsePreparedSystemRunPayload(preparedRun?.payload);
+            if (!preparedContext) {
+              throw new Error("invalid system.run.prepare response");
+            }
+
             // Node requires approval – create a pending approval request on
             // the gateway and wait for the user to approve/deny via the UI.
             const APPROVAL_TIMEOUT_MS = 120_000;
-            const cmdText = formatExecCommand(command);
             const approvalId = crypto.randomUUID();
             const approvalResult = await callGatewayTool(
               "exec.approval.request",
               { ...gatewayOpts, timeoutMs: APPROVAL_TIMEOUT_MS + 5_000 },
               {
                 id: approvalId,
-                command: cmdText,
+                command: preparedContext.cmdText,
                 commandArgv: command,
+                systemRunPlanV2: preparedContext.plan,
                 cwd,
                 nodeId,
                 host: "node",
