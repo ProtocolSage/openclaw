@@ -4,21 +4,9 @@ on:
   push:
     branches:
       - recovery/p0-security-clean
-  pull_request:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/recovery-validation.yml"
-      - "RECOVERY_NOTES.md"
-      - "OPERATOR_CHECKLIST.md"
-      - "scripts/staged-upstream-cherry-pick.sh"
-      - "src/**"
-      - "extensions/**"
-      - "package.json"
-      - "pnpm-lock.yaml"
 
 concurrency:
-  group: recovery-validation-${{ github.workflow }}-${{ github.ref }}
+  group: recovery-validation-${{ github.workflow }}-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 jobs:
