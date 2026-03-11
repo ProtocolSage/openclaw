@@ -29,6 +29,7 @@ import {
   handleUpdated,
 } from "./app-lifecycle.ts";
 import { renderApp } from "./app-render.ts";
+import { loadLibrarySessions } from "./controllers/library.ts";
 import {
   exportLogs as exportLogsInternal,
   handleChatScroll as handleChatScrollInternal,
@@ -60,7 +61,14 @@ import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exe
 import type { SkillMessage } from "./controllers/skills.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
-import { loadSettings, type UiSettings } from "./storage.ts";
+import {
+  loadSettings,
+  loadUIState,
+  ensureStorageMigrated,
+  loadProjectState,
+  saveProjectState,
+  type UiSettings,
+} from "./storage.ts";
 import type { ResolvedTheme, ThemeMode } from "./theme.ts";
 import type {
   AgentsListResult,
@@ -233,6 +241,8 @@ export class OpenClawApp extends LitElement {
   @state() agentIdentityLoading = false;
   @state() agentIdentityError: string | null = null;
   @state() agentIdentityById: Record<string, AgentIdentityResult> = {};
+  @state() openFiles: string[] = [];
+  @state() selectedFile: string | null = null;
   @state() agentSkillsLoading = false;
   @state() agentSkillsError: string | null = null;
   @state() agentSkillsReport: SkillStatusReport | null = null;
@@ -245,6 +255,7 @@ export class OpenClawApp extends LitElement {
   @state() sessionsFilterLimit = "120";
   @state() sessionsIncludeGlobal = true;
   @state() sessionsIncludeUnknown = false;
+  @state() librarySessions: any[] = [];
 
   @state() usageLoading = false;
   @state() usageResult: import("./types.js").SessionsUsageResult | null = null;
@@ -395,7 +406,55 @@ export class OpenClawApp extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    void this.initApp();
+  }
+
+  private async initApp() {
+    await ensureStorageMigrated();
+    this.settings = await loadUIState();
+    if (this.settings.sessionKey) {
+      this.sessionKey = this.settings.sessionKey;
+      await this.loadCurrentProjectState();
+    }
     handleConnected(this as unknown as Parameters<typeof handleConnected>[0]);
+  }
+
+  private async loadCurrentProjectState() {
+    if (!this.sessionKey) {
+      return;
+    }
+    const state = await loadProjectState(this.sessionKey);
+    if (state) {
+      this.openFiles = state.openFiles || [];
+      this.selectedFile = state.selectedFile || null;
+      if (state.layout) {
+        this.sidebarOpen = !!state.layout.sidebarOpen;
+        if (typeof state.layout.splitRatio === "number") {
+          this.splitRatio = state.layout.splitRatio;
+        }
+      }
+    } else {
+      this.openFiles = [];
+      this.selectedFile = null;
+      this.sidebarOpen = false;
+      this.splitRatio = this.settings.splitRatio;
+    }
+  }
+
+  private async saveCurrentProjectState() {
+    if (!this.sessionKey) {
+      return;
+    }
+    await saveProjectState({
+      sessionId: this.sessionKey,
+      openFiles: this.openFiles,
+      selectedFile: this.selectedFile ?? undefined,
+      layout: {
+        sidebarOpen: this.sidebarOpen,
+        splitRatio: this.splitRatio,
+      },
+      updatedAt: Date.now(),
+    });
   }
 
   protected firstUpdated() {
@@ -409,6 +468,14 @@ export class OpenClawApp extends LitElement {
 
   protected updated(changed: Map<PropertyKey, unknown>) {
     handleUpdated(this as unknown as Parameters<typeof handleUpdated>[0], changed);
+
+    if (changed.has("sessionKey")) {
+      void this.loadCurrentProjectState();
+    }
+
+    if (changed.has("openFiles") || changed.has("selectedFile") || changed.has("sidebarOpen") || changed.has("splitRatio")) {
+      void this.saveCurrentProjectState();
+    }
   }
 
   connect() {
