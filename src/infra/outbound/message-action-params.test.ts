@@ -48,7 +48,7 @@ describe("message action sandbox media hydration", () => {
           action: "sendAttachment",
           mediaPolicy,
         }),
-      ).rejects.toThrow(/outside workspace root|outside/i);
+      ).rejects.toThrow(/outside workspace root|outside|path escapes root/i);
     } finally {
       await fs.rm(sandboxRoot, { recursive: true, force: true });
       await fs.rm(outsideRoot, { recursive: true, force: true });

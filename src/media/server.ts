@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import type { Server } from "node:http";
 import express, { type Express } from "express";
 import { danger } from "../globals.js";
-import { SafeOpenError, readFileWithinRoot } from "../infra/fs-safe.js";
+import { SafeOpenError, openFileWithinRoot } from "../infra/fs-safe.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
 import { detectMime } from "./mime.js";
 import { cleanOldMedia, getMediaDir, MEDIA_MAX_BYTES } from "./store.js";
@@ -39,19 +39,24 @@ export function attachMediaRoutes(
       return;
     }
     try {
-      const {
-        buffer: data,
-        realPath,
-        stat,
-      } = await readFileWithinRoot({
+      const opened = await openFileWithinRoot({
         rootDir: mediaDir,
         relativePath: id,
-        maxBytes: MAX_MEDIA_BYTES,
       });
-      if (Date.now() - stat.mtimeMs > ttlMs) {
-        await fs.rm(realPath).catch(() => {});
-        res.status(410).send("expired");
-        return;
+      const realPath = opened.realPath;
+      let data: Buffer;
+      try {
+        if (opened.stat.size > MAX_MEDIA_BYTES) {
+          throw new SafeOpenError("too-large", "file too large");
+        }
+        if (Date.now() - opened.stat.mtimeMs > ttlMs) {
+          await fs.rm(realPath).catch(() => {});
+          res.status(410).send("expired");
+          return;
+        }
+        data = await opened.handle.readFile();
+      } finally {
+        await opened.handle.close().catch(() => {});
       }
       const mime = await detectMime({ buffer: data, filePath: realPath });
       if (mime) {

@@ -35,12 +35,13 @@ const TRUSTED_BASE = new Set([
   "creator owner",
   // Localized SYSTEM account names (French, German, Spanish, Portuguese)
   "autorite nt\\système",
+  "autorite nt\\systeme",
   "nt-autorität\\system",
   "autoridad nt\\system",
   "autoridade nt\\system",
 ]);
 const WORLD_SUFFIXES = ["\\users", "\\authenticated users"];
-const TRUSTED_SUFFIXES = ["\\administrators", "\\system", "\\système"];
+const TRUSTED_SUFFIXES = ["\\administrators", "\\system", "\\système", "\\systeme"];
 
 const SID_RE = /^s-\d+-\d+(-\d+)+$/i;
 const TRUSTED_SIDS = new Set([
@@ -105,19 +106,6 @@ function classifyPrincipal(
     WORLD_SUFFIXES.some((suffix) => normalized.endsWith(suffix))
   ) {
     return "world";
-  }
-
-  // Fallback: strip diacritics and re-check for localized SYSTEM variants
-  const stripped = normalized.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  if (
-    stripped !== normalized &&
-    (TRUSTED_BASE.has(stripped) ||
-      TRUSTED_SUFFIXES.some((suffix) => {
-        const strippedSuffix = suffix.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-        return stripped.endsWith(strippedSuffix);
-      }))
-  ) {
-    return "trusted";
   }
 
   return "group";

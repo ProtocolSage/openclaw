@@ -29,6 +29,8 @@ export type SystemRunApprovalPlanV2 = {
   sessionKey: string | null;
 };
 
+export type SystemRunApprovalPlan = SystemRunApprovalPlanV2;
+
 export type ExecApprovalRequestPayload = {
   command: string;
   commandArgv?: string[];

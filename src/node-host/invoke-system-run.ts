@@ -171,7 +171,10 @@ async function sendSystemRunDenied(
 }
 
 export { formatSystemRunAllowlistMissMessage } from "./exec-policy.js";
-export { buildSystemRunApprovalPlan } from "./invoke-system-run-plan.js";
+export {
+  buildSystemRunApprovalPlan,
+  buildSystemRunApprovalPlanV2,
+} from "./invoke-system-run-plan.js";
 
 async function parseSystemRunPhase(
   opts: HandleSystemRunInvokeOptions,
@@ -296,6 +299,7 @@ async function evaluateSystemRunPolicyPhase(
 
   const hardenedPaths = hardenApprovedExecutionPaths({
     approvedByAsk: policy.approvedByAsk,
+    pinAllowlistExecutable: security === "allowlist" && policy.allowlistSatisfied,
     argv: parsed.argv,
     shellCommand: parsed.shellCommand,
     cwd: parsed.cwd,
@@ -316,7 +320,7 @@ async function evaluateSystemRunPolicyPhase(
     return null;
   }
 
-  const plannedAllowlistArgv = resolvePlannedAllowlistArgv({
+  let plannedAllowlistArgv = resolvePlannedAllowlistArgv({
     security,
     shellCommand: parsed.shellCommand,
     policy,
@@ -328,6 +332,14 @@ async function evaluateSystemRunPolicyPhase(
       message: "SYSTEM_RUN_DENIED: execution plan mismatch",
     });
     return null;
+  }
+  if (
+    plannedAllowlistArgv &&
+    plannedAllowlistArgv.length > 0 &&
+    hardenedPaths.argvChanged &&
+    !parsed.shellCommand
+  ) {
+    plannedAllowlistArgv = [hardenedPaths.argv[0], ...plannedAllowlistArgv.slice(1)];
   }
   return {
     ...parsed,
