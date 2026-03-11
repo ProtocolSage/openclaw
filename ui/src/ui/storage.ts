@@ -109,8 +109,21 @@ export async function saveUIState(settings: UiSettings): Promise<void> {
   localStorage.setItem(LEGACY_KEY, JSON.stringify(settings));
 }
 
-export async function persistSessionMessages(sessionId: string, messages: any[]): Promise<void> {
-  if (!sessionId) return;
+export interface ExternalMessage {
+  id?: string;
+  role: "user" | "assistant" | "system" | "tool";
+  content: unknown;
+  timestamp?: number;
+  metadata?: Record<string, unknown>;
+}
+
+export async function persistSessionMessages(
+  sessionId: string,
+  messages: ExternalMessage[],
+): Promise<void> {
+  if (!sessionId) {
+    return;
+  }
 
   const internalMessages: Message[] = messages.map((m, i) => ({
     id: m.id || `${sessionId}-${i}-${m.timestamp || Date.now()}`,
@@ -140,7 +153,7 @@ export async function persistSessionMessages(sessionId: string, messages: any[])
 
 // Session management
 export async function loadSession(sessionId: string): Promise<SessionMetadata | null> {
-...  return storage.getSession(sessionId);
+  return storage.getSession(sessionId);
 }
 
 export async function saveSession(session: SessionMetadata): Promise<void> {

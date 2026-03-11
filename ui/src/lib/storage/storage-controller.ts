@@ -1,46 +1,60 @@
 import { openDB, type IDBPDatabase } from "idb";
+import { z } from "zod";
 
 const DB_NAME = "openclaw-control-plane";
 const DB_VERSION = 1;
 
-export interface SessionMetadata {
-  id: string;
-  title: string;
-  projectId?: string;
-  createdAt: number;
-  updatedAt: number;
-  archived?: boolean;
-  lastMessagePreview?: string;
-}
+// --- Schemas ---
 
-export interface Message {
-  id: string;
-  sessionId: string;
-  role: "user" | "assistant" | "system" | "tool";
-  content: string;
-  createdAt: number;
-  updatedAt: number;
-  metadata?: Record<string, unknown>;
-}
+export const SessionMetadataSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  projectId: z.string().optional(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  archived: z.boolean().optional(),
+  lastMessagePreview: z.string().optional(),
+});
 
-export interface ProjectState {
-  sessionId: string;
-  activeProject?: string;
-  openFiles: string[];
-  selectedFile?: string;
-  layout?: Record<string, unknown>;
-  agentState?: Record<string, unknown>;
-  updatedAt: number;
-}
+export type SessionMetadata = z.infer<typeof SessionMetadataSchema>;
 
-export interface UIState {
-  id: "global";
-  lastOpenedSessionId?: string;
-  sidebarState?: Record<string, unknown>;
-  theme?: string;
-  updatedAt: number;
-  [key: string]: unknown;
-}
+export const MessageSchema = z.object({
+  id: z.string(),
+  sessionId: z.string(),
+  role: z.enum(["user", "assistant", "system", "tool"]),
+  content: z.string(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+  metadata: z.record(z.unknown()).optional(),
+});
+
+export type Message = z.infer<typeof MessageSchema>;
+
+export const ProjectStateSchema = z.object({
+  sessionId: z.string(),
+  activeProject: z.string().optional(),
+  openFiles: z.array(z.string()),
+  selectedFile: z.string().nullable().optional(),
+  layout: z.record(z.unknown()).optional(),
+  agentState: z.record(z.unknown()).optional(),
+  updatedAt: z.number(),
+});
+
+export type ProjectState = z.infer<typeof ProjectStateSchema>;
+
+export const UIStateSchema = z
+  .object({
+    id: z.literal("global"),
+    lastOpenedSessionId: z.string().optional(),
+    sidebarState: z.record(z.unknown()).optional(),
+    theme: z.string().optional(),
+    updatedAt: z.number(),
+  })
+  .catchall(z.unknown());
+
+export type UIState = z.infer<typeof UIStateSchema>;
+
+// --- Storage Controller ---
 
 export class StorageController {
   private db: Promise<IDBPDatabase>;
@@ -75,7 +89,12 @@ export class StorageController {
   // UI State
   async getUIState(): Promise<UIState | null> {
     const db = await this.db;
-    return db.get("uiState", "global");
+    const raw = await db.get("uiState", "global");
+    if (!raw) {
+      return null;
+    }
+    const parsed = UIStateSchema.safeParse(raw);
+    return parsed.success ? parsed.data : null;
   }
 
   async saveUIState(state: UIState): Promise<void> {
@@ -86,7 +105,12 @@ export class StorageController {
   // Sessions
   async getSession(id: string): Promise<SessionMetadata | null> {
     const db = await this.db;
-    return db.get("sessions", id);
+    const raw = await db.get("sessions", id);
+    if (!raw) {
+      return null;
+    }
+    const parsed = SessionMetadataSchema.safeParse(raw);
+    return parsed.success ? parsed.data : null;
   }
 
   async saveSession(session: SessionMetadata): Promise<void> {
@@ -96,7 +120,11 @@ export class StorageController {
 
   async listSessions(): Promise<SessionMetadata[]> {
     const db = await this.db;
-    return db.getAll("sessions");
+    const all = await db.getAll("sessions");
+    return all
+      .map((raw) => SessionMetadataSchema.safeParse(raw))
+      .filter((p) => p.success)
+      .map((p) => p.data);
   }
 
   async deleteSession(id: string): Promise<void> {
@@ -119,7 +147,11 @@ export class StorageController {
   // Messages
   async getMessages(sessionId: string): Promise<Message[]> {
     const db = await this.db;
-    return db.getAllFromIndex("messages", "by-session", sessionId);
+    const all = await db.getAllFromIndex("messages", "by-session", sessionId);
+    return all
+      .map((raw) => MessageSchema.safeParse(raw))
+      .filter((p) => p.success)
+      .map((p) => p.data);
   }
 
   async saveMessages(messages: Message[]): Promise<void> {
@@ -134,7 +166,12 @@ export class StorageController {
   // Project State
   async getProjectState(sessionId: string): Promise<ProjectState | null> {
     const db = await this.db;
-    return db.get("projectState", sessionId);
+    const raw = await db.get("projectState", sessionId);
+    if (!raw) {
+      return null;
+    }
+    const parsed = ProjectStateSchema.safeParse(raw);
+    return parsed.success ? parsed.data : null;
   }
 
   async saveProjectState(state: ProjectState): Promise<void> {

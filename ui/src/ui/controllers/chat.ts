@@ -1,15 +1,15 @@
 import { extractText } from "../chat/message-extract.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
+import { persistSessionMessages, loadMessages, type ExternalMessage } from "../storage.ts";
 import type { ChatAttachment } from "../ui-types.ts";
 import { generateUUID } from "../uuid.ts";
-import { persistSessionMessages, loadMessages } from "../storage.ts";
 
 export type ChatState = {
   client: GatewayBrowserClient | null;
   connected: boolean;
   sessionKey: string;
   chatLoading: boolean;
-  chatMessages: unknown[];
+  chatMessages: ExternalMessage[];
   chatThinkingLevel: string | null;
   chatSending: boolean;
   chatMessage: string;
@@ -40,7 +40,10 @@ export async function loadChatHistory(state: ChatState) {
         try {
           return {
             role: m.role,
-            content: m.content.startsWith("[") || m.content.startsWith("{") ? JSON.parse(m.content) : m.content,
+            content:
+              m.content.startsWith("[") || m.content.startsWith("{")
+                ? JSON.parse(m.content)
+                : m.content,
             timestamp: m.createdAt,
           };
         } catch {
@@ -264,7 +267,10 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
     if (payload.state === "final") {
       const finalMessage = normalizeFinalAssistantMessage(payload.message);
       if (finalMessage) {
-        state.chatMessages = [...state.chatMessages, finalMessage];
+        state.chatMessages = [
+          ...state.chatMessages,
+          { ...finalMessage, role: "assistant" } as ExternalMessage,
+        ];
         return null;
       }
       return "final";
@@ -283,15 +289,22 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
   } else if (payload.state === "final") {
     const finalMessage = normalizeFinalAssistantMessage(payload.message);
     if (finalMessage) {
-      state.chatMessages = [...state.chatMessages, finalMessage];
+      state.chatMessages = [
+        ...state.chatMessages,
+        { ...finalMessage, role: "assistant" } as ExternalMessage,
+      ];
       void persistSessionMessages(state.sessionKey, state.chatMessages);
     }
     state.chatStream = null;
-  ...
+    state.chatRunId = null;
+    state.chatStreamStartedAt = null;
   } else if (payload.state === "aborted") {
     const normalizedMessage = normalizeAbortedAssistantMessage(payload.message);
     if (normalizedMessage) {
-      state.chatMessages = [...state.chatMessages, normalizedMessage];
+      state.chatMessages = [
+        ...state.chatMessages,
+        { ...normalizedMessage, role: "assistant" } as ExternalMessage,
+      ];
     } else {
       const streamedText = state.chatStream ?? "";
       if (streamedText.trim()) {
@@ -306,8 +319,6 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
       }
     }
     void persistSessionMessages(state.sessionKey, state.chatMessages);
-    state.chatStream = null;
-
     state.chatStream = null;
     state.chatRunId = null;
     state.chatStreamStartedAt = null;

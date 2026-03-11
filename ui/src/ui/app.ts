@@ -29,7 +29,6 @@ import {
   handleUpdated,
 } from "./app-lifecycle.ts";
 import { renderApp } from "./app-render.ts";
-import { loadLibrarySessions } from "./controllers/library.ts";
 import {
   exportLogs as exportLogsInternal,
   handleChatScroll as handleChatScrollInternal,
@@ -68,6 +67,7 @@ import {
   loadProjectState,
   saveProjectState,
   type UiSettings,
+  type ExternalMessage,
 } from "./storage.ts";
 import type { ResolvedTheme, ThemeMode } from "./theme.ts";
 import type {
@@ -148,7 +148,7 @@ export class OpenClawApp extends LitElement {
   @state() chatLoading = false;
   @state() chatSending = false;
   @state() chatMessage = "";
-  @state() chatMessages: unknown[] = [];
+  @state() chatMessages: ExternalMessage[] = [];
   @state() chatToolMessages: unknown[] = [];
   @state() chatStream: string | null = null;
   @state() chatStreamStartedAt: number | null = null;
@@ -255,7 +255,7 @@ export class OpenClawApp extends LitElement {
   @state() sessionsFilterLimit = "120";
   @state() sessionsIncludeGlobal = true;
   @state() sessionsIncludeUnknown = false;
-  @state() librarySessions: any[] = [];
+  @state() librarySessions: unknown[] = [];
 
   @state() usageLoading = false;
   @state() usageResult: import("./types.js").SessionsUsageResult | null = null;
@@ -473,7 +473,12 @@ export class OpenClawApp extends LitElement {
       void this.loadCurrentProjectState();
     }
 
-    if (changed.has("openFiles") || changed.has("selectedFile") || changed.has("sidebarOpen") || changed.has("splitRatio")) {
+    if (
+      changed.has("openFiles") ||
+      changed.has("selectedFile") ||
+      changed.has("sidebarOpen") ||
+      changed.has("splitRatio")
+    ) {
       void this.saveCurrentProjectState();
     }
   }
