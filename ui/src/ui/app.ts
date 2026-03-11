@@ -60,7 +60,7 @@ import type { ExecApprovalsFile, ExecApprovalsSnapshot } from "./controllers/exe
 import type { SkillMessage } from "./controllers/skills.ts";
 import type { GatewayBrowserClient, GatewayHelloOk } from "./gateway.ts";
 import type { Tab } from "./navigation.ts";
-import { loadSettings, type UiSettings } from "./storage.ts";
+import { loadSettings, loadUIState, ensureStorageMigrated, type UiSettings } from "./storage.ts";
 import type { ResolvedTheme, ThemeMode } from "./theme.ts";
 import type {
   AgentsListResult,
@@ -395,6 +395,12 @@ export class OpenClawApp extends LitElement {
 
   connectedCallback() {
     super.connectedCallback();
+    void this.initApp();
+  }
+
+  private async initApp() {
+    await ensureStorageMigrated();
+    this.settings = await loadUIState();
     handleConnected(this as unknown as Parameters<typeof handleConnected>[0]);
   }
 
