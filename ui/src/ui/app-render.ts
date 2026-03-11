@@ -55,6 +55,7 @@ import { loadLogs } from "./controllers/logs.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import { deleteSessionAndRefresh, loadSessions, patchSession } from "./controllers/sessions.ts";
+import { loadLibrarySessions, deleteLibrarySession, renameLibrarySession } from "./controllers/library.ts";
 import {
   installSkill,
   loadSkills,
@@ -77,6 +78,7 @@ import { renderInstances } from "./views/instances.ts";
 import { renderLogs } from "./views/logs.ts";
 import { renderNodes } from "./views/nodes.ts";
 import { renderOverview } from "./views/overview.ts";
+import { renderLibrary } from "./views/library.ts";
 import { renderSessions } from "./views/sessions.ts";
 import { renderSkills } from "./views/skills.ts";
 
@@ -405,6 +407,20 @@ export function renderApp(state: AppViewState) {
                 lastError: state.presenceError,
                 statusMessage: state.presenceStatus,
                 onRefresh: () => loadPresence(state),
+              })
+            : nothing
+        }
+
+        ${
+          state.tab === "library"
+            ? renderLibrary({
+                loading: state.sessionsLoading,
+                sessions: state.librarySessions,
+                currentSessionId: state.sessionKey,
+                basePath: state.basePath,
+                onRefresh: () => loadLibrarySessions(state),
+                onDelete: (id) => deleteLibrarySession(state, id),
+                onRename: (id, title) => renameLibrarySession(state, id, title),
               })
             : nothing
         }
