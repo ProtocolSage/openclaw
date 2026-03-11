@@ -2,6 +2,7 @@ import { extractText } from "../chat/message-extract.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
 import type { ChatAttachment } from "../ui-types.ts";
 import { generateUUID } from "../uuid.ts";
+import { persistSessionMessages, loadMessages } from "../storage.ts";
 
 export type ChatState = {
   client: GatewayBrowserClient | null;
@@ -28,11 +29,38 @@ export type ChatEventPayload = {
 };
 
 export async function loadChatHistory(state: ChatState) {
-  if (!state.client || !state.connected) {
-    return;
-  }
   state.chatLoading = true;
   state.lastError = null;
+
+  // Try local first for rapid rendering
+  try {
+    const local = await loadMessages(state.sessionKey);
+    if (local && local.length > 0 && state.chatMessages.length === 0) {
+      state.chatMessages = local.map((m) => {
+        try {
+          return {
+            role: m.role,
+            content: m.content.startsWith("[") || m.content.startsWith("{") ? JSON.parse(m.content) : m.content,
+            timestamp: m.createdAt,
+          };
+        } catch {
+          return {
+            role: m.role,
+            content: m.content,
+            timestamp: m.createdAt,
+          };
+        }
+      });
+    }
+  } catch (err) {
+    console.warn("Failed to load local history:", err);
+  }
+
+  if (!state.client || !state.connected) {
+    state.chatLoading = false;
+    return;
+  }
+
   try {
     const res = await state.client.request<{ messages?: Array<unknown>; thinkingLevel?: string }>(
       "chat.history",
@@ -41,8 +69,12 @@ export async function loadChatHistory(state: ChatState) {
         limit: 200,
       },
     );
-    state.chatMessages = Array.isArray(res.messages) ? res.messages : [];
+    const messages = Array.isArray(res.messages) ? res.messages : [];
+    state.chatMessages = messages;
     state.chatThinkingLevel = res.thinkingLevel ?? null;
+
+    // Persist to local
+    void persistSessionMessages(state.sessionKey, messages);
   } catch (err) {
     state.lastError = String(err);
   } finally {
@@ -146,6 +178,7 @@ export async function sendChatMessage(
       timestamp: now,
     },
   ];
+  void persistSessionMessages(state.sessionKey, state.chatMessages);
 
   state.chatSending = true;
   state.lastError = null;
@@ -251,10 +284,10 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
     const finalMessage = normalizeFinalAssistantMessage(payload.message);
     if (finalMessage) {
       state.chatMessages = [...state.chatMessages, finalMessage];
+      void persistSessionMessages(state.sessionKey, state.chatMessages);
     }
     state.chatStream = null;
-    state.chatRunId = null;
-    state.chatStreamStartedAt = null;
+  ...
   } else if (payload.state === "aborted") {
     const normalizedMessage = normalizeAbortedAssistantMessage(payload.message);
     if (normalizedMessage) {
@@ -272,6 +305,9 @@ export function handleChatEvent(state: ChatState, payload?: ChatEventPayload) {
         ];
       }
     }
+    void persistSessionMessages(state.sessionKey, state.chatMessages);
+    state.chatStream = null;
+
     state.chatStream = null;
     state.chatRunId = null;
     state.chatStreamStartedAt = null;
