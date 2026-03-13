@@ -161,11 +161,14 @@ describe("node exec events", () => {
       }),
     });
 
-    const [[text]] = enqueueSystemEventMock.mock.calls;
-    expect(typeof text).toBe("string");
-    expect(text.startsWith("Exec finished (node=node-2 id=run-long, code 0)\n")).toBe(true);
-    expect(text.endsWith("…")).toBe(true);
-    expect(text.length).toBeLessThan(280);
+    const [[eventInput]] = enqueueSystemEventMock.mock.calls;
+    expect(typeof eventInput).toBe("string");
+    if (typeof eventInput !== "string") {
+      throw new Error("expected string system event");
+    }
+    expect(eventInput.startsWith("Exec finished (node=node-2 id=run-long, code 0)\n")).toBe(true);
+    expect(eventInput.endsWith("…")).toBe(true);
+    expect(eventInput.length).toBeLessThan(280);
     expect(requestHeartbeatNowMock).toHaveBeenCalledWith({ reason: "exec-event" });
   });
 

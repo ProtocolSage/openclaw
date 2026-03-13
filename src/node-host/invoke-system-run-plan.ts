@@ -262,6 +262,7 @@ export function buildSystemRunApprovalPlan(params: {
     ok: true,
     plan: {
       argv: hardening.argv,
+      version: 2,
       cwd: hardening.cwd ?? null,
       rawCommand,
       agentId: normalizeString(params.agentId),

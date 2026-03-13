@@ -290,6 +290,7 @@ export async function runExecProcess(opts: {
   const startedAt = Date.now();
   const sessionId = createSessionSlug();
   const execCommand = opts.execCommand ?? opts.command;
+  const systemEventSessionKey = opts.sessionKey?.trim();
   const supervisor = getProcessSupervisor();
 
   const session: ProcessSession = {
@@ -321,6 +322,18 @@ export async function runExecProcess(opts: {
     backgrounded: false,
   };
   addSession(session);
+
+  if (systemEventSessionKey) {
+    enqueueSystemEvent(
+      {
+        kind: "coding-agent",
+        status: "started",
+        processSessionId: sessionId,
+        metadata: { cmdSummary: opts.command.slice(0, 100) },
+      },
+      { sessionKey: systemEventSessionKey },
+    );
+  }
 
   const emitUpdate = () => {
     if (!opts.onUpdate) {
@@ -509,6 +522,21 @@ export async function runExecProcess(opts: {
 
       markExited(session, exit.exitCode, exit.exitSignal, status);
       maybeNotifyOnExit(session, status);
+
+      if (systemEventSessionKey) {
+        enqueueSystemEvent(
+          {
+            kind: "coding-agent",
+            status: status === "completed" ? "finished" : "failed",
+            processSessionId: sessionId,
+            metadata: {
+              cmdSummary: opts.command.slice(0, 100),
+              lastLog: (session.tail || session.aggregated || "").split(/\r?\n/g).slice(-10),
+            },
+          },
+          { sessionKey: systemEventSessionKey },
+        );
+      }
       if (!session.child && session.stdin) {
         session.stdin.destroyed = true;
       }
