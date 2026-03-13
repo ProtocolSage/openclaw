@@ -117,6 +117,46 @@ export interface ExternalMessage {
   metadata?: Record<string, unknown>;
 }
 
+const EXTERNAL_MESSAGE_ROLES = new Set<ExternalMessage["role"]>([
+  "user",
+  "assistant",
+  "system",
+  "tool",
+]);
+
+function parseStoredMessageContent(content: string): unknown {
+  if (!content.startsWith("[") && !content.startsWith("{")) {
+    return content;
+  }
+  try {
+    return JSON.parse(content);
+  } catch {
+    return content;
+  }
+}
+
+export function toExternalMessage(message: Message): ExternalMessage {
+  return {
+    id: message.id,
+    role: message.role,
+    content: parseStoredMessageContent(message.content),
+    timestamp: message.createdAt,
+    metadata: message.metadata,
+  };
+}
+
+export function isExternalMessage(value: unknown): value is ExternalMessage {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.role === "string" &&
+    EXTERNAL_MESSAGE_ROLES.has(candidate.role as ExternalMessage["role"]) &&
+    "content" in candidate
+  );
+}
+
 export async function persistSessionMessages(
   sessionId: string,
   messages: ExternalMessage[],

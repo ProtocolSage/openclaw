@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { ExternalMessage } from "../storage.ts";
 import { handleChatEvent, type ChatEventPayload, type ChatState } from "./chat.ts";
 
 function createState(overrides: Partial<ChatState> = {}): ChatState {
@@ -137,12 +138,12 @@ describe("handleChatEvent", () => {
   });
 
   it("processes aborted from own run and keeps partial assistant message", () => {
-    const existingMessage = {
+    const existingMessage: ExternalMessage = {
       role: "user",
       content: [{ type: "text", text: "Hi" }],
       timestamp: 1,
     };
-    const partialMessage = {
+    const partialMessage: ExternalMessage = {
       role: "assistant",
       content: [{ type: "text", text: "Partial reply" }],
       timestamp: 2,
@@ -169,7 +170,7 @@ describe("handleChatEvent", () => {
   });
 
   it("falls back to streamed partial when aborted payload message is invalid", () => {
-    const existingMessage = {
+    const existingMessage: ExternalMessage = {
       role: "user",
       content: [{ type: "text", text: "Hi" }],
       timestamp: 1,
@@ -201,7 +202,7 @@ describe("handleChatEvent", () => {
   });
 
   it("falls back to streamed partial when aborted payload has non-assistant role", () => {
-    const existingMessage = {
+    const existingMessage: ExternalMessage = {
       role: "user",
       content: [{ type: "text", text: "Hi" }],
       timestamp: 1,
@@ -232,7 +233,7 @@ describe("handleChatEvent", () => {
   });
 
   it("processes aborted from own run without message and empty stream", () => {
-    const existingMessage = {
+    const existingMessage: ExternalMessage = {
       role: "user",
       content: [{ type: "text", text: "Hi" }],
       timestamp: 1,

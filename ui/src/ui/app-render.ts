@@ -1,6 +1,7 @@
 import { html, nothing } from "lit";
 import { parseAgentSessionKey } from "../../../src/routing/session-key.js";
 import { t } from "../i18n/index.ts";
+import type { SessionMetadata } from "../lib/storage/storage-controller.ts";
 import { refreshChatAvatar } from "./app-chat.ts";
 import { renderUsageTab } from "./app-render-usage-tab.ts";
 import { renderChatControls, renderTab, renderThemeToggle } from "./app-render.helpers.ts";
@@ -51,11 +52,15 @@ import {
   saveExecApprovals,
   updateExecApprovalsFormValue,
 } from "./controllers/exec-approvals.ts";
+import {
+  loadLibrarySessions,
+  deleteLibrarySession,
+  renameLibrarySession,
+} from "./controllers/library.ts";
 import { loadLogs } from "./controllers/logs.ts";
 import { loadNodes } from "./controllers/nodes.ts";
 import { loadPresence } from "./controllers/presence.ts";
 import { deleteSessionAndRefresh, loadSessions, patchSession } from "./controllers/sessions.ts";
-import { loadLibrarySessions, deleteLibrarySession, renameLibrarySession } from "./controllers/library.ts";
 import {
   installSkill,
   loadSkills,
@@ -75,10 +80,10 @@ import { renderDebug } from "./views/debug.ts";
 import { renderExecApprovalPrompt } from "./views/exec-approval.ts";
 import { renderGatewayUrlConfirmation } from "./views/gateway-url-confirmation.ts";
 import { renderInstances } from "./views/instances.ts";
+import { renderLibrary } from "./views/library.ts";
 import { renderLogs } from "./views/logs.ts";
 import { renderNodes } from "./views/nodes.ts";
 import { renderOverview } from "./views/overview.ts";
-import { renderLibrary } from "./views/library.ts";
 import { renderSessions } from "./views/sessions.ts";
 import { renderSkills } from "./views/skills.ts";
 
@@ -139,6 +144,11 @@ function resolveAssistantAvatarUrl(state: AppViewState): string | undefined {
 }
 
 export function renderApp(state: AppViewState) {
+  const librarySessions = (state as AppViewState & { librarySessions: SessionMetadata[] })
+    .librarySessions;
+  const libraryControllerState = state as unknown as Parameters<typeof loadLibrarySessions>[0];
+  const chatControllerState = state as Parameters<typeof loadChatHistory>[0];
+  const chatAvatarState = state as Parameters<typeof refreshChatAvatar>[0];
   const openClawVersion =
     (typeof state.hello?.server?.version === "string" && state.hello.server.version.trim()) ||
     state.updateAvailable?.currentVersion ||
@@ -415,12 +425,12 @@ export function renderApp(state: AppViewState) {
           state.tab === "library"
             ? renderLibrary({
                 loading: state.sessionsLoading,
-                sessions: state.librarySessions,
+                sessions: librarySessions,
                 currentSessionId: state.sessionKey,
                 basePath: state.basePath,
-                onRefresh: () => loadLibrarySessions(state),
-                onDelete: (id) => deleteLibrarySession(state, id),
-                onRename: (id, title) => renameLibrarySession(state, id, title),
+                onRefresh: () => loadLibrarySessions(libraryControllerState),
+                onDelete: (id) => deleteLibrarySession(libraryControllerState, id),
+                onRename: (id, title) => renameLibrarySession(libraryControllerState, id, title),
               })
             : nothing
         }
@@ -1007,8 +1017,8 @@ export function renderApp(state: AppViewState) {
                     lastActiveSessionKey: next,
                   });
                   void state.loadAssistantIdentity();
-                  void loadChatHistory(state);
-                  void refreshChatAvatar(state);
+                  void loadChatHistory(chatControllerState);
+                  void refreshChatAvatar(chatAvatarState);
                 },
                 thinkingLevel: state.chatThinkingLevel,
                 showThinking,
@@ -1031,7 +1041,10 @@ export function renderApp(state: AppViewState) {
                 focusMode: chatFocus,
                 onRefresh: () => {
                   state.resetToolStream();
-                  return Promise.all([loadChatHistory(state), refreshChatAvatar(state)]);
+                  return Promise.all([
+                    loadChatHistory(chatControllerState),
+                    refreshChatAvatar(chatAvatarState),
+                  ]);
                 },
                 onToggleFocusMode: () => {
                   if (state.onboarding) {

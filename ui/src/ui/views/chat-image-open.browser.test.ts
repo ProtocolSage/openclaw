@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { ExternalMessage } from "../storage.ts";
 import { mountApp, registerAppMountHooks } from "../test-helpers/app-mount.ts";
 
 registerAppMountHooks();
@@ -7,7 +8,7 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-function renderAssistantImage(url: string) {
+function renderAssistantImage(url: string): ExternalMessage {
   return {
     role: "assistant",
     content: [{ type: "image_url", image_url: { url } }],

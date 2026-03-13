@@ -1,6 +1,12 @@
 import { extractText } from "../chat/message-extract.ts";
 import type { GatewayBrowserClient } from "../gateway.ts";
-import { persistSessionMessages, loadMessages, type ExternalMessage } from "../storage.ts";
+import {
+  persistSessionMessages,
+  loadMessages,
+  isExternalMessage,
+  toExternalMessage,
+  type ExternalMessage,
+} from "../storage.ts";
 import type { ChatAttachment } from "../ui-types.ts";
 import { generateUUID } from "../uuid.ts";
 
@@ -36,24 +42,7 @@ export async function loadChatHistory(state: ChatState) {
   try {
     const local = await loadMessages(state.sessionKey);
     if (local && local.length > 0 && state.chatMessages.length === 0) {
-      state.chatMessages = local.map((m) => {
-        try {
-          return {
-            role: m.role,
-            content:
-              m.content.startsWith("[") || m.content.startsWith("{")
-                ? JSON.parse(m.content)
-                : m.content,
-            timestamp: m.createdAt,
-          };
-        } catch {
-          return {
-            role: m.role,
-            content: m.content,
-            timestamp: m.createdAt,
-          };
-        }
-      });
+      state.chatMessages = local.map((message) => toExternalMessage(message));
     }
   } catch (err) {
     console.warn("Failed to load local history:", err);
@@ -72,7 +61,7 @@ export async function loadChatHistory(state: ChatState) {
         limit: 200,
       },
     );
-    const messages = Array.isArray(res.messages) ? res.messages : [];
+    const messages = Array.isArray(res.messages) ? res.messages.filter(isExternalMessage) : [];
     state.chatMessages = messages;
     state.chatThinkingLevel = res.thinkingLevel ?? null;
 

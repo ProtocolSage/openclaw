@@ -25,7 +25,7 @@ export const MessageSchema = z.object({
   content: z.string(),
   createdAt: z.number(),
   updatedAt: z.number(),
-  metadata: z.record(z.unknown()).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export type Message = z.infer<typeof MessageSchema>;
@@ -35,8 +35,8 @@ export const ProjectStateSchema = z.object({
   activeProject: z.string().optional(),
   openFiles: z.array(z.string()),
   selectedFile: z.string().nullable().optional(),
-  layout: z.record(z.unknown()).optional(),
-  agentState: z.record(z.unknown()).optional(),
+  layout: z.record(z.string(), z.unknown()).optional(),
+  agentState: z.record(z.string(), z.unknown()).optional(),
   updatedAt: z.number(),
 });
 
@@ -46,7 +46,7 @@ export const UIStateSchema = z
   .object({
     id: z.literal("global"),
     lastOpenedSessionId: z.string().optional(),
-    sidebarState: z.record(z.unknown()).optional(),
+    sidebarState: z.record(z.string(), z.unknown()).optional(),
     theme: z.string().optional(),
     updatedAt: z.number(),
   })
