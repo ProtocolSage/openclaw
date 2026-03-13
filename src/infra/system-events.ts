@@ -2,7 +2,37 @@
 // prefixed to the next prompt. We intentionally avoid persistence to keep
 // events ephemeral. Events are session-scoped and require an explicit key.
 
-export type SystemEvent = { text: string; ts: number; contextKey?: string | null };
+export type SystemEventStatus = "started" | "needs-input" | "finished" | "failed";
+
+export interface CodingAgentEvent {
+  kind: "coding-agent";
+  status: SystemEventStatus;
+  processSessionId: string;
+  metadata?: {
+    cmdSummary?: string;
+    lastLog?: string[];
+  };
+}
+
+export interface TextSystemEventInput {
+  text: string;
+  contextKey?: string | null;
+}
+
+export interface SystemEvent {
+  text: string;
+  ts: number;
+  contextKey?: string | null;
+  kind?: "coding-agent";
+  status?: SystemEventStatus;
+  processSessionId?: string;
+  metadata?: {
+    cmdSummary?: string;
+    lastLog?: string[];
+  };
+}
+
+export type SystemEventInput = string | TextSystemEventInput | CodingAgentEvent;
 
 const MAX_EVENTS = 20;
 
@@ -48,8 +78,76 @@ export function isSystemEventContextChanged(
   return normalized !== (existing?.lastContextKey ?? null);
 }
 
-export function enqueueSystemEvent(text: string, options: SystemEventOptions) {
+function getCodingAgentEventText(input: CodingAgentEvent): string {
+  const summary = input.metadata?.cmdSummary?.trim();
+  const fallback = input.processSessionId
+    ? `process ${input.processSessionId}`
+    : "coding agent event";
+  return `[coding-agent:${input.status}] ${summary || fallback}`;
+}
+
+function isCodingAgentEvent(input: SystemEventInput): input is CodingAgentEvent {
+  return (
+    typeof input === "object" && input !== null && "kind" in input && input.kind === "coding-agent"
+  );
+}
+
+function normalizeSystemEventInput(
+  input: SystemEventInput,
+  options: SystemEventOptions,
+): SystemEvent | null {
+  const contextKey =
+    normalizeContextKey(options.contextKey) ??
+    (typeof input === "object" && "contextKey" in input
+      ? normalizeContextKey(input.contextKey)
+      : null);
+
+  if (typeof input === "string") {
+    const text = input.trim();
+    if (!text) {
+      return null;
+    }
+    return {
+      text,
+      ts: Date.now(),
+      contextKey,
+    };
+  }
+
+  if (isCodingAgentEvent(input)) {
+    return {
+      text: getCodingAgentEventText(input),
+      ts: Date.now(),
+      contextKey,
+      kind: input.kind,
+      status: input.status,
+      processSessionId: input.processSessionId,
+      metadata: input.metadata
+        ? {
+            cmdSummary: input.metadata.cmdSummary,
+            lastLog: input.metadata.lastLog ? [...input.metadata.lastLog] : undefined,
+          }
+        : undefined,
+    };
+  }
+
+  const text = input.text.trim();
+  if (!text) {
+    return null;
+  }
+  return {
+    text,
+    ts: Date.now(),
+    contextKey,
+  };
+}
+
+export function enqueueSystemEvent(input: SystemEventInput, options: SystemEventOptions) {
   const key = requireSessionKey(options?.sessionKey);
+  const event = normalizeSystemEventInput(input, options);
+  if (!event) {
+    return;
+  }
   const entry =
     queues.get(key) ??
     (() => {
@@ -61,21 +159,13 @@ export function enqueueSystemEvent(text: string, options: SystemEventOptions) {
       queues.set(key, created);
       return created;
     })();
-  const cleaned = text.trim();
-  if (!cleaned) {
-    return;
-  }
-  const normalizedContextKey = normalizeContextKey(options?.contextKey);
-  entry.lastContextKey = normalizedContextKey;
-  if (entry.lastText === cleaned) {
+
+  entry.lastContextKey = event.contextKey ?? null;
+  if (entry.lastText === event.text) {
     return;
   } // skip consecutive duplicates
-  entry.lastText = cleaned;
-  entry.queue.push({
-    text: cleaned,
-    ts: Date.now(),
-    contextKey: normalizedContextKey,
-  });
+  entry.lastText = event.text;
+  entry.queue.push(event);
   if (entry.queue.length > MAX_EVENTS) {
     entry.queue.shift();
   }

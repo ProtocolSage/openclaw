@@ -275,6 +275,30 @@ This triggers an immediate wake event — Skippy gets pinged in seconds, not 10 
 
 ---
 
+## Verification Rules
+
+- **Do not report lint/test/build/typecheck success unless the command exited 0.**
+- **If a command is missing** (e.g., `pnpm: command not found`), **stop and diagnose the environment** before claiming anything about verification.
+- **Distinguish clearly between:**
+  - targeted verification (specific tests only)
+  - full typecheck (`tsc --noEmit`)
+  - full repo health (lint + test + build)
+- **Never claim "repo fixed" from targeted tests alone.**
+- **Prefer phase-bounded work:**
+  - patch → diff → targeted verification → broader verification only if requested
+
+---
+
+## Hard Rules (Enforced in Prompts)
+
+- **Bounded Phases Default**: Audit → Phase N → Checkpoint → Next. No monoliths (e.g., `--full-auto 'do everything'`).
+- **NO Autonomous Ops**: gh auth/login/repo create/push/deploy/secrets/tokens inside bg tasks.
+- **ALWAYS Structure**: Include scope/exclusions/deliverables/acceptance criteria/completion notify (`openclaw system event --text "Done: [summary]" --mode now`).
+- **Stop/Ask Triggers**: Emit `needs-input` event on auth/destructive cleanup/unclear deletions/remote ops/major dep churn.
+- **Split Large Tasks**: Use multiple small bg sessions (e.g., P0: git, P1: lint).
+
+Update all examples/prompts to follow.
+
 ## Learnings (Jan 2026)
 
 - **PTY is essential:** Coding agents are interactive terminal apps. Without `pty:true`, output breaks or agent hangs.
