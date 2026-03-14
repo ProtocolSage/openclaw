@@ -6,6 +6,7 @@ import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
 import { isDangerousHostEnvVarName } from "../infra/host-env-security.js";
 import { mergePathPrepend } from "../infra/path-prepend.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
+import { buildDeterministicExecPath, runToolchainPreflight } from "../infra/toolchain-preflight.js";
 import type { ProcessSession } from "./bash-process-registry.js";
 import type { ExecToolDetails } from "./bash-tools.exec-types.js";
 import type { BashSandboxConfig } from "./bash-tools.shared.js";
@@ -322,6 +323,55 @@ export async function runExecProcess(opts: {
     backgrounded: false,
   };
   addSession(session);
+
+  // Sandbox execs run in a separately controlled runtime, so host-side toolchain
+  // preflight only applies to direct host/gateway command execution.
+  if (!opts.sandbox) {
+    const preflightEnv: Record<string, string> = {
+      ...opts.env,
+      PATH: buildDeterministicExecPath(opts.env),
+    };
+    const preflight = runToolchainPreflight(execCommand, preflightEnv);
+    opts.env.PATH = preflight.pathUsed;
+    if (!preflight.ok) {
+      const missingLabel =
+        preflight.missing.length === 1 ? "tool not found in PATH" : "tools not found in PATH";
+      const reason = `Blocked: required ${missingLabel}: ${preflight.missing.join(", ")}`;
+      session.aggregated = reason;
+      session.tail = reason;
+      markExited(session, null, null, "failed");
+      if (systemEventSessionKey) {
+        enqueueSystemEvent(
+          {
+            kind: "coding-agent",
+            status: "failed",
+            processSessionId: sessionId,
+            metadata: {
+              cmdSummary: opts.command.slice(0, 100),
+              lastLog: [reason],
+            },
+          },
+          { sessionKey: systemEventSessionKey },
+        );
+      }
+      const promise = Promise.resolve<ExecProcessOutcome>({
+        status: "failed",
+        exitCode: null,
+        exitSignal: null,
+        durationMs: Date.now() - startedAt,
+        aggregated: "",
+        timedOut: false,
+        reason,
+      });
+      return {
+        session,
+        startedAt,
+        pid: undefined,
+        promise,
+        kill: () => {},
+      };
+    }
+  }
 
   if (systemEventSessionKey) {
     enqueueSystemEvent(
