@@ -9,6 +9,7 @@ describe("renderVerificationSummary", () => {
         targetedTests: "not-run",
         fullTsc: "not-run",
         fullLint: "not-run",
+        requiredRepoTests: "not-run",
         repoHealth: "unknown",
       }),
     ).toEqual([
@@ -16,6 +17,7 @@ describe("renderVerificationSummary", () => {
       "Targeted tests not run",
       "Full tsc not run",
       "Full lint not run",
+      "Required repo-wide tests not run",
       "Repo-wide health unknown",
     ]);
   });
@@ -27,12 +29,14 @@ describe("renderVerificationSummary", () => {
         targetedTests: "passed",
         fullTsc: "not-run",
         fullLint: "not-run",
+        requiredRepoTests: "not-run",
         repoHealth: "unknown",
       }),
     ).toEqual([
       "Targeted tests passed",
       "Full tsc not run",
       "Full lint not run",
+      "Required repo-wide tests not run",
       "Repo-wide health unknown",
     ]);
   });
@@ -44,6 +48,7 @@ describe("renderVerificationSummary", () => {
         targetedTests: "passed",
         fullTsc: "failed",
         fullLint: "not-run",
+        requiredRepoTests: "not-run",
         repoHealth: "unknown",
         reasons: { fullTsc: "tsc exited 2" },
       }),
@@ -51,6 +56,7 @@ describe("renderVerificationSummary", () => {
       "Targeted tests passed",
       "Full tsc failed: tsc exited 2",
       "Full lint not run",
+      "Required repo-wide tests not run",
       "Repo-wide health unknown",
     ]);
   });
@@ -61,13 +67,15 @@ describe("renderVerificationSummary", () => {
         patchApplied: false,
         targetedTests: "passed",
         fullTsc: "passed",
-        fullLint: "not-run",
+        fullLint: "passed",
+        requiredRepoTests: "not-run",
         repoHealth: "established",
       }),
     ).toEqual([
       "Targeted tests passed",
       "Full tsc passed",
-      "Full lint not run",
+      "Full lint passed",
+      "Required repo-wide tests not run",
       "Repo-wide health unknown",
     ]);
   });
@@ -79,12 +87,14 @@ describe("renderVerificationSummary", () => {
         targetedTests: "passed",
         fullTsc: "passed",
         fullLint: "failed",
+        requiredRepoTests: "passed",
         repoHealth: "unknown",
       }),
     ).toEqual([
       "Targeted tests passed",
       "Full tsc passed",
       "Full lint failed",
+      "Required repo-wide tests passed",
       "Repo-wide health unknown",
     ]);
   });

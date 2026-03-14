@@ -5,17 +5,19 @@ export type VerificationScopeReport = {
   targetedTests: VerificationResult;
   fullTsc: VerificationResult;
   fullLint: VerificationResult;
+  requiredRepoTests: VerificationResult;
   repoHealth: "established" | "unknown";
   reasons?: Partial<{
     targetedTests: string;
     fullTsc: string;
     fullLint: string;
+    requiredRepoTests: string;
     repoHealth: string;
   }>;
 };
 
 function renderVerificationResult(
-  scope: "targetedTests" | "fullTsc" | "fullLint",
+  scope: "targetedTests" | "fullTsc" | "fullLint" | "requiredRepoTests",
   result: VerificationResult,
   reason?: string,
 ): string {
@@ -35,6 +37,11 @@ function renderVerificationResult(
       failed: "Full lint failed",
       "not-run": "Full lint not run",
     },
+    requiredRepoTests: {
+      passed: "Required repo-wide tests passed",
+      failed: "Required repo-wide tests failed",
+      "not-run": "Required repo-wide tests not run",
+    },
   } as const;
   const label = labels[scope][result];
   return result === "failed" && reason ? `${label}: ${reason}` : label;
@@ -50,11 +57,19 @@ export function renderVerificationSummary(report: VerificationScopeReport): stri
   );
   lines.push(renderVerificationResult("fullTsc", report.fullTsc, report.reasons?.fullTsc));
   lines.push(renderVerificationResult("fullLint", report.fullLint, report.reasons?.fullLint));
+  lines.push(
+    renderVerificationResult(
+      "requiredRepoTests",
+      report.requiredRepoTests,
+      report.reasons?.requiredRepoTests,
+    ),
+  );
 
   const repoHealthEstablished =
     report.repoHealth === "established" &&
     report.fullTsc === "passed" &&
-    report.fullLint === "passed";
+    report.fullLint === "passed" &&
+    report.requiredRepoTests === "passed";
   const repoHealthLine = repoHealthEstablished
     ? "Repo-wide health established"
     : "Repo-wide health unknown";

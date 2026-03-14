@@ -123,6 +123,7 @@ describe("runCliAgent with process supervisor", () => {
         targetedTests: "passed",
         fullTsc: "not-run",
         fullLint: "not-run",
+        requiredRepoTests: "not-run",
         repoHealth: "unknown",
       },
     });
@@ -132,6 +133,7 @@ describe("runCliAgent with process supervisor", () => {
         "Targeted tests passed",
         "Full tsc not run",
         "Full lint not run",
+        "Required repo-wide tests not run",
         "Repo-wide health unknown",
       ].join("\n"),
     );
@@ -165,6 +167,7 @@ describe("runCliAgent with process supervisor", () => {
         targetedTests: "not-run",
         fullTsc: "not-run",
         fullLint: "not-run",
+        requiredRepoTests: "not-run",
         repoHealth: "unknown",
       },
     });
@@ -175,6 +178,7 @@ describe("runCliAgent with process supervisor", () => {
         "Targeted tests not run",
         "Full tsc not run",
         "Full lint not run",
+        "Required repo-wide tests not run",
         "Repo-wide health unknown",
       ].join("\n"),
     );
@@ -208,6 +212,7 @@ describe("runCliAgent with process supervisor", () => {
         targetedTests: "passed",
         fullTsc: "passed",
         fullLint: "passed",
+        requiredRepoTests: "passed",
         repoHealth: "established",
       },
     });
@@ -218,6 +223,7 @@ describe("runCliAgent with process supervisor", () => {
         "Targeted tests passed",
         "Full tsc passed",
         "Full lint passed",
+        "Required repo-wide tests passed",
         "Repo-wide health established",
       ].join("\n"),
     );
