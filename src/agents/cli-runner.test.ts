@@ -95,6 +95,137 @@ describe("runCliAgent with process supervisor", () => {
     expect(input.scopeKey).toContain("thread-123");
   });
 
+  it("adds targeted-only verification labels through the runtime payload path", async () => {
+    supervisorSpawnMock.mockResolvedValueOnce(
+      createManagedRun({
+        reason: "exit",
+        exitCode: 0,
+        exitSignal: null,
+        durationMs: 50,
+        stdout: "",
+        stderr: "",
+        timedOut: false,
+        noOutputTimedOut: false,
+      }),
+    );
+
+    const result = await runCliAgent({
+      sessionId: "s1",
+      sessionFile: "/tmp/session.jsonl",
+      workspaceDir: "/tmp",
+      prompt: "hi",
+      provider: "codex-cli",
+      model: "gpt-5.2-codex",
+      timeoutMs: 1_000,
+      runId: "run-targeted-only",
+      verificationScope: {
+        patchApplied: false,
+        targetedTests: "passed",
+        fullTsc: "not-run",
+        fullLint: "not-run",
+        requiredRepoTests: "not-run",
+      },
+    });
+
+    expect(result.payloads?.[0]?.text).toBe(
+      [
+        "Targeted tests passed",
+        "Full tsc not run",
+        "Full lint not run",
+        "Required repo-wide tests not run",
+        "Repo-wide health unknown",
+      ].join("\n"),
+    );
+  });
+
+  it("does not imply verification for a patch-only runtime path", async () => {
+    supervisorSpawnMock.mockResolvedValueOnce(
+      createManagedRun({
+        reason: "exit",
+        exitCode: 0,
+        exitSignal: null,
+        durationMs: 50,
+        stdout: "",
+        stderr: "",
+        timedOut: false,
+        noOutputTimedOut: false,
+      }),
+    );
+
+    const result = await runCliAgent({
+      sessionId: "s1",
+      sessionFile: "/tmp/session.jsonl",
+      workspaceDir: "/tmp",
+      prompt: "hi",
+      provider: "codex-cli",
+      model: "gpt-5.2-codex",
+      timeoutMs: 1_000,
+      runId: "run-patch-only",
+      verificationScope: {
+        patchApplied: true,
+        targetedTests: "not-run",
+        fullTsc: "not-run",
+        fullLint: "not-run",
+        requiredRepoTests: "not-run",
+      },
+    });
+
+    expect(result.payloads?.[0]?.text).toBe(
+      [
+        "Patch applied",
+        "Targeted tests not run",
+        "Full tsc not run",
+        "Full lint not run",
+        "Required repo-wide tests not run",
+        "Repo-wide health unknown",
+      ].join("\n"),
+    );
+  });
+
+  it("can render Repo-wide health established only when all broad checks are passed", async () => {
+    supervisorSpawnMock.mockResolvedValueOnce(
+      createManagedRun({
+        reason: "exit",
+        exitCode: 0,
+        exitSignal: null,
+        durationMs: 50,
+        stdout: "",
+        stderr: "",
+        timedOut: false,
+        noOutputTimedOut: false,
+      }),
+    );
+
+    const result = await runCliAgent({
+      sessionId: "s1",
+      sessionFile: "/tmp/session.jsonl",
+      workspaceDir: "/tmp",
+      prompt: "hi",
+      provider: "codex-cli",
+      model: "gpt-5.2-codex",
+      timeoutMs: 1_000,
+      runId: "run-full-verification",
+      verificationScope: {
+        patchApplied: true,
+        targetedTests: "passed",
+        fullTsc: "passed",
+        fullLint: "passed",
+        requiredRepoTests: "passed",
+      },
+    });
+
+    expect(result.payloads?.[0]?.text).toBe(
+      [
+        "Patch applied",
+        "Targeted tests passed",
+        "Full tsc passed",
+        "Full lint passed",
+        "Required repo-wide tests passed",
+        "Repo-wide health established",
+      ].join("\n"),
+    );
+  });
+
   it("fails with timeout when no-output watchdog trips", async () => {
     supervisorSpawnMock.mockResolvedValueOnce(
       createManagedRun({

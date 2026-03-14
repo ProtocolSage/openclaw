@@ -279,6 +279,11 @@ This triggers an immediate wake event — Skippy gets pinged in seconds, not 10 
 
 - **Do not report lint/test/build/typecheck success unless the command exited 0.**
 - **If a command is missing** (e.g., `pnpm: command not found`), **stop and diagnose the environment** before claiming anything about verification.
+- **Patch application is not verification.**
+- **Targeted tests are not repo-wide success.**
+- **Skipped checks must be labeled `not run`.**
+- **If only targeted checks ran, output must include `Repo-wide health unknown`.**
+- **Only output `Repo-wide health established` when full `tsc` passed, full lint passed, and required repo-wide tests passed.**
 - **Distinguish clearly between:**
   - targeted verification (specific tests only)
   - full typecheck (`tsc --noEmit`)
