@@ -7,8 +7,7 @@ import {
   parseCameraClipPayload,
   parseCameraSnapPayload,
   writeCameraClipPayloadToFile,
-  writeBase64ToFile,
-  writeUrlToFile,
+  writeCameraPayloadToFile,
 } from "../../cli/nodes-camera.js";
 import { parseEnvPairs, parseTimeoutMs } from "../../cli/nodes-run.js";
 import {
@@ -39,6 +38,7 @@ const NODES_TOOL_ACTIONS = [
   "camera_snap",
   "camera_list",
   "camera_clip",
+  "photos_latest",
   "screen_record",
   "location_get",
   "notifications_list",
@@ -56,6 +56,12 @@ const NOTIFY_DELIVERIES = ["system", "overlay", "auto"] as const;
 const NOTIFICATIONS_ACTIONS = ["open", "dismiss", "reply"] as const;
 const CAMERA_FACING = ["front", "back", "both"] as const;
 const LOCATION_ACCURACY = ["coarse", "balanced", "precise"] as const;
+const MEDIA_INVOKE_ACTIONS = {
+  "camera.snap": "camera_snap",
+  "camera.clip": "camera_clip",
+  "photos.latest": "photos_latest",
+  "screen.record": "screen_record",
+} as const;
 const NODE_READ_ACTION_COMMANDS = {
   camera_list: "camera.list",
   notifications_list: "notifications.list",
@@ -118,8 +124,9 @@ const NodesToolSchema = Type.Object({
   quality: Type.Optional(Type.Number()),
   delayMs: Type.Optional(Type.Number()),
   deviceId: Type.Optional(Type.String()),
+  limit: Type.Optional(Type.Number()),
   duration: Type.Optional(Type.String()),
-  durationMs: Type.Optional(Type.Number()),
+  durationMs: Type.Optional(Type.Number({ maximum: 300_000 })),
   includeAudio: Type.Optional(Type.Boolean()),
   // screen_record
   fps: Type.Optional(Type.Number()),
@@ -152,6 +159,8 @@ export function createNodesTool(options?: {
   currentChannelId?: string;
   currentThreadTs?: string | number;
   config?: OpenClawConfig;
+  modelHasVision?: boolean;
+  allowMediaInvokeCommands?: boolean;
 }): AnyAgentTool {
   const sessionKey = options?.agentSessionKey?.trim() || undefined;
   const turnSourceChannel = options?.agentChannel?.trim() || undefined;
@@ -166,8 +175,9 @@ export function createNodesTool(options?: {
   return {
     label: "Nodes",
     name: "nodes",
+    ownerOnly: true,
     description:
-      "Discover and control paired nodes (status/describe/pairing/notify/camera/screen/location/notifications/run/invoke).",
+      "Discover and control paired nodes (status/describe/pairing/notify/camera/photos/screen/location/notifications/run/invoke).",
     parameters: NodesToolSchema,
     execute: async (_toolCallId, args) => {
       const params = args as Record<string, unknown>;
@@ -294,18 +304,14 @@ export function createNodesTool(options?: {
                 facing,
                 ext: isJpeg ? "jpg" : "png",
               });
-              if (payload.url) {
-                if (!resolvedNode.remoteIp) {
-                  throw new Error("camera URL payload requires node remoteIp");
-                }
-                await writeUrlToFile(filePath, payload.url, {
-                  expectedHost: resolvedNode.remoteIp,
-                });
-              } else if (payload.base64) {
-                await writeBase64ToFile(filePath, payload.base64);
-              }
+              await writeCameraPayloadToFile({
+                filePath,
+                payload,
+                expectedHost: resolvedNode.remoteIp,
+                invalidPayloadMessage: "invalid camera.snap payload",
+              });
               content.push({ type: "text", text: `MEDIA:${filePath}` });
-              if (payload.base64) {
+              if (options?.modelHasVision && payload.base64) {
                 content.push({
                   type: "image",
                   data: payload.base64,
@@ -323,6 +329,103 @@ export function createNodesTool(options?: {
 
             const result: AgentToolResult<unknown> = { content, details };
             return await sanitizeToolResultImages(result, "nodes:camera_snap", imageSanitization);
+          }
+          case "photos_latest": {
+            const node = readStringParam(params, "node", { required: true });
+            const resolvedNode = await resolveNode(gatewayOpts, node);
+            const nodeId = resolvedNode.nodeId;
+            const limitRaw =
+              typeof params.limit === "number" && Number.isFinite(params.limit)
+                ? Math.floor(params.limit)
+                : DEFAULT_PHOTOS_LIMIT;
+            const limit = Math.max(1, Math.min(limitRaw, MAX_PHOTOS_LIMIT));
+            const maxWidth =
+              typeof params.maxWidth === "number" && Number.isFinite(params.maxWidth)
+                ? params.maxWidth
+                : DEFAULT_PHOTOS_MAX_WIDTH;
+            const quality =
+              typeof params.quality === "number" && Number.isFinite(params.quality)
+                ? params.quality
+                : DEFAULT_PHOTOS_QUALITY;
+            const raw = await callGatewayTool<{ payload: unknown }>("node.invoke", gatewayOpts, {
+              nodeId,
+              command: "photos.latest",
+              params: {
+                limit,
+                maxWidth,
+                quality,
+              },
+              idempotencyKey: crypto.randomUUID(),
+            });
+            const payload =
+              raw?.payload && typeof raw.payload === "object" && !Array.isArray(raw.payload)
+                ? (raw.payload as Record<string, unknown>)
+                : {};
+            const photos = Array.isArray(payload.photos) ? payload.photos : [];
+
+            if (photos.length === 0) {
+              const result: AgentToolResult<unknown> = {
+                content: [],
+                details: [],
+              };
+              return await sanitizeToolResultImages(
+                result,
+                "nodes:photos_latest",
+                imageSanitization,
+              );
+            }
+
+            const content: AgentToolResult<unknown>["content"] = [];
+            const details: Array<Record<string, unknown>> = [];
+
+            for (const [index, photoRaw] of photos.entries()) {
+              const photo = parseCameraSnapPayload(photoRaw);
+              const normalizedFormat = photo.format.toLowerCase();
+              if (
+                normalizedFormat !== "jpg" &&
+                normalizedFormat !== "jpeg" &&
+                normalizedFormat !== "png"
+              ) {
+                throw new Error(`unsupported photos.latest format: ${photo.format}`);
+              }
+              const isJpeg = normalizedFormat === "jpg" || normalizedFormat === "jpeg";
+              const filePath = cameraTempPath({
+                kind: "snap",
+                ext: isJpeg ? "jpg" : "png",
+                id: crypto.randomUUID(),
+              });
+              await writeCameraPayloadToFile({
+                filePath,
+                payload: photo,
+                expectedHost: resolvedNode.remoteIp,
+                invalidPayloadMessage: "invalid photos.latest payload",
+              });
+
+              content.push({ type: "text", text: `MEDIA:${filePath}` });
+              if (options?.modelHasVision && photo.base64) {
+                content.push({
+                  type: "image",
+                  data: photo.base64,
+                  mimeType:
+                    imageMimeFromFormat(photo.format) ?? (isJpeg ? "image/jpeg" : "image/png"),
+                });
+              }
+
+              const createdAt =
+                photoRaw && typeof photoRaw === "object" && !Array.isArray(photoRaw)
+                  ? (photoRaw as Record<string, unknown>).createdAt
+                  : undefined;
+              details.push({
+                index,
+                path: filePath,
+                width: photo.width,
+                height: photo.height,
+                ...(typeof createdAt === "string" ? { createdAt } : {}),
+              });
+            }
+
+            const result: AgentToolResult<unknown> = { content, details };
+            return await sanitizeToolResultImages(result, "nodes:photos_latest", imageSanitization);
           }
           case "camera_list":
           case "notifications_list":
@@ -428,12 +531,14 @@ export function createNodesTool(options?: {
           case "screen_record": {
             const node = readStringParam(params, "node", { required: true });
             const nodeId = await resolveNodeId(gatewayOpts, node);
-            const durationMs =
+            const durationMs = Math.min(
               typeof params.durationMs === "number" && Number.isFinite(params.durationMs)
                 ? params.durationMs
                 : typeof params.duration === "string"
                   ? parseDurationMs(params.duration)
-                  : 10_000;
+                  : 10_000,
+              300_000,
+            );
             const fps =
               typeof params.fps === "number" && Number.isFinite(params.fps) ? params.fps : 10;
             const screenIndex =
@@ -538,14 +643,35 @@ export function createNodesTool(options?: {
               typeof params.needsScreenRecording === "boolean"
                 ? params.needsScreenRecording
                 : undefined;
+            const prepareRaw = await callGatewayTool<{ payload?: unknown }>(
+              "node.invoke",
+              gatewayOpts,
+              {
+                nodeId,
+                command: "system.run.prepare",
+                params: {
+                  command,
+                  cwd,
+                  agentId,
+                  sessionKey,
+                },
+                timeoutMs: invokeTimeoutMs,
+                idempotencyKey: crypto.randomUUID(),
+              },
+            );
+            const prepared = parsePreparedSystemRunPayload(prepareRaw?.payload);
+            if (!prepared) {
+              throw new Error("invalid system.run.prepare response");
+            }
             const runParams = {
-              command,
-              cwd,
+              command: prepared.plan.argv,
+              rawCommand: prepared.plan.commandText,
+              cwd: prepared.plan.cwd ?? cwd,
               env,
               timeoutMs: commandTimeoutMs,
               needsScreenRecording,
-              agentId,
-              sessionKey,
+              agentId: prepared.plan.agentId ?? agentId,
+              sessionKey: prepared.plan.sessionKey ?? sessionKey,
             };
 
             // First attempt without approval flags.
@@ -565,26 +691,6 @@ export function createNodesTool(options?: {
               }
             }
 
-            const preparedRun = await callGatewayTool<{ payload?: unknown }>(
-              "node.invoke",
-              gatewayOpts,
-              {
-                nodeId,
-                command: "system.run.prepare",
-                params: {
-                  command,
-                  cwd,
-                  agentId,
-                  sessionKey,
-                },
-                idempotencyKey: crypto.randomUUID(),
-              },
-            );
-            const preparedContext = parsePreparedSystemRunPayload(preparedRun?.payload);
-            if (!preparedContext) {
-              throw new Error("invalid system.run.prepare response");
-            }
-
             // Node requires approval – create a pending approval request on
             // the gateway and wait for the user to approve/deny via the UI.
             const APPROVAL_TIMEOUT_MS = 120_000;
@@ -594,14 +700,12 @@ export function createNodesTool(options?: {
               { ...gatewayOpts, timeoutMs: APPROVAL_TIMEOUT_MS + 5_000 },
               {
                 id: approvalId,
-                command: preparedContext.cmdText,
-                commandArgv: command,
-                systemRunPlanV2: preparedContext.plan,
-                cwd,
+                systemRunPlan: prepared.plan,
+                cwd: prepared.plan.cwd ?? cwd,
                 nodeId,
                 host: "node",
-                agentId,
-                sessionKey,
+                agentId: prepared.plan.agentId ?? agentId,
+                sessionKey: prepared.plan.sessionKey ?? sessionKey,
                 turnSourceChannel,
                 turnSourceTo,
                 turnSourceAccountId,
@@ -645,6 +749,14 @@ export function createNodesTool(options?: {
             const node = readStringParam(params, "node", { required: true });
             const nodeId = await resolveNodeId(gatewayOpts, node);
             const invokeCommand = readStringParam(params, "invokeCommand", { required: true });
+            const invokeCommandNormalized = invokeCommand.trim().toLowerCase();
+            const dedicatedAction =
+              MEDIA_INVOKE_ACTIONS[invokeCommandNormalized as keyof typeof MEDIA_INVOKE_ACTIONS];
+            if (dedicatedAction && !options?.allowMediaInvokeCommands) {
+              throw new Error(
+                `invokeCommand "${invokeCommand}" returns media payloads and is blocked to prevent base64 context bloat; use action="${dedicatedAction}"`,
+              );
+            }
             const invokeParamsJson =
               typeof params.invokeParamsJson === "string" ? params.invokeParamsJson.trim() : "";
             let invokeParams: unknown = {};
@@ -695,3 +807,8 @@ export function createNodesTool(options?: {
     },
   };
 }
+
+const DEFAULT_PHOTOS_LIMIT = 1;
+const MAX_PHOTOS_LIMIT = 20;
+const DEFAULT_PHOTOS_MAX_WIDTH = 1600;
+const DEFAULT_PHOTOS_QUALITY = 0.85;

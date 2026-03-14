@@ -4,6 +4,8 @@ import { listChannelPlugins } from "../channels/plugins/index.js";
 import type { ChannelId } from "../channels/plugins/types.js";
 import { formatCliCommand } from "../cli/command-format.js";
 import type { OpenClawConfig, GatewayBindMode } from "../config/config.js";
+import type { AgentConfig } from "../config/types.agents.js";
+import { hasConfiguredSecretInput } from "../config/types.secrets.js";
 import { resolveGatewayAuth } from "../gateway/auth.js";
 import { isLoopbackHost, resolveGatewayBindHost } from "../gateway/net.js";
 import { resolveCredentialVaultDir } from "../security/credential-vault.js";
@@ -11,6 +13,44 @@ import { resolveDmAllowState } from "../security/dm-policy-shared.js";
 import { formatHealthSummary, getSecurityHealthReport } from "../security/security-health.js";
 import { note } from "../terminal/note.js";
 import { resolveDefaultChannelAccountContext } from "./channel-account-context.js";
+
+function collectImplicitHeartbeatDirectPolicyWarnings(cfg: OpenClawConfig): string[] {
+  const warnings: string[] = [];
+
+  const maybeWarn = (params: {
+    label: string;
+    heartbeat: AgentConfig["heartbeat"] | undefined;
+    pathHint: string;
+  }) => {
+    const heartbeat = params.heartbeat;
+    if (!heartbeat || heartbeat.target === undefined || heartbeat.target === "none") {
+      return;
+    }
+    if (heartbeat.directPolicy !== undefined) {
+      return;
+    }
+    warnings.push(
+      `- ${params.label}: heartbeat delivery is configured while ${params.pathHint} is unset.`,
+      '  Heartbeat now allows direct/DM targets by default. Set it explicitly to "allow" or "block" to pin upgrade behavior.',
+    );
+  };
+
+  maybeWarn({
+    label: "Heartbeat defaults",
+    heartbeat: cfg.agents?.defaults?.heartbeat,
+    pathHint: "agents.defaults.heartbeat.directPolicy",
+  });
+
+  for (const agent of cfg.agents?.list ?? []) {
+    maybeWarn({
+      label: `Heartbeat agent "${agent.id}"`,
+      heartbeat: agent.heartbeat,
+      pathHint: `heartbeat.directPolicy for agent "${agent.id}"`,
+    });
+  }
+
+  return warnings;
+}
 
 export async function noteSecurityWarnings(cfg: OpenClawConfig) {
   const warnings: string[] = [];
@@ -23,6 +63,8 @@ export async function noteSecurityWarnings(cfg: OpenClawConfig) {
       `  Check local policy with: ${formatCliCommand("openclaw approvals get --gateway")}`,
     );
   }
+
+  warnings.push(...collectImplicitHeartbeatDirectPolicyWarnings(cfg));
 
   // ===========================================
   // GATEWAY NETWORK EXPOSURE CHECK
@@ -48,8 +90,12 @@ export async function noteSecurityWarnings(cfg: OpenClawConfig) {
   });
   const authToken = resolvedAuth.token?.trim() ?? "";
   const authPassword = resolvedAuth.password?.trim() ?? "";
-  const hasToken = authToken.length > 0;
-  const hasPassword = authPassword.length > 0;
+  const hasToken =
+    authToken.length > 0 ||
+    hasConfiguredSecretInput(cfg.gateway?.auth?.token, cfg.secrets?.defaults);
+  const hasPassword =
+    authPassword.length > 0 ||
+    hasConfiguredSecretInput(cfg.gateway?.auth?.password, cfg.secrets?.defaults);
   const hasSharedSecret =
     (resolvedAuth.mode === "token" && hasToken) ||
     (resolvedAuth.mode === "password" && hasPassword);

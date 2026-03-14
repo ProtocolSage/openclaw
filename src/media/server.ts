@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import type { Server } from "node:http";
 import express, { type Express } from "express";
 import { danger } from "../globals.js";
-import { SafeOpenError, openFileWithinRoot } from "../infra/fs-safe.js";
+import { SafeOpenError, readFileWithinRoot } from "../infra/fs-safe.js";
 import { defaultRuntime, type RuntimeEnv } from "../runtime.js";
 import { detectMime } from "./mime.js";
 import { cleanOldMedia, getMediaDir, MEDIA_MAX_BYTES } from "./store.js";
@@ -33,30 +33,26 @@ export function attachMediaRoutes(
   const mediaDir = getMediaDir();
 
   app.get("/media/:id", async (req, res) => {
+    res.setHeader("X-Content-Type-Options", "nosniff");
     const id = req.params.id;
     if (!isValidMediaId(id)) {
       res.status(400).send("invalid path");
       return;
     }
     try {
-      const opened = await openFileWithinRoot({
+      const {
+        buffer: data,
+        realPath,
+        stat,
+      } = await readFileWithinRoot({
         rootDir: mediaDir,
         relativePath: id,
+        maxBytes: MAX_MEDIA_BYTES,
       });
-      const realPath = opened.realPath;
-      let data: Buffer;
-      try {
-        if (opened.stat.size > MAX_MEDIA_BYTES) {
-          throw new SafeOpenError("too-large", "file too large");
-        }
-        if (Date.now() - opened.stat.mtimeMs > ttlMs) {
-          await fs.rm(realPath).catch(() => {});
-          res.status(410).send("expired");
-          return;
-        }
-        data = await opened.handle.readFile();
-      } finally {
-        await opened.handle.close().catch(() => {});
+      if (Date.now() - stat.mtimeMs > ttlMs) {
+        await fs.rm(realPath).catch(() => {});
+        res.status(410).send("expired");
+        return;
       }
       const mime = await detectMime({ buffer: data, filePath: realPath });
       if (mime) {
@@ -77,6 +73,10 @@ export function attachMediaRoutes(
       });
     } catch (err) {
       if (err instanceof SafeOpenError) {
+        if (err.code === "outside-workspace") {
+          res.status(400).send("file is outside workspace root");
+          return;
+        }
         if (err.code === "invalid-path") {
           res.status(400).send("invalid path");
           return;
@@ -96,7 +96,7 @@ export function attachMediaRoutes(
 
   // periodic cleanup
   setInterval(() => {
-    void cleanOldMedia(ttlMs);
+    void cleanOldMedia(ttlMs, { recursive: false });
   }, ttlMs).unref();
 }
 

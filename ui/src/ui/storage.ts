@@ -1,233 +1,224 @@
-import { isSupportedLocale } from "../i18n/index.ts";
-import {
-  StorageController,
-  type SessionMetadata,
-  type Message,
-  type ProjectState,
-} from "../lib/storage/storage-controller.ts";
-import type { ThemeMode } from "./theme.ts";
+const KEY = "openclaw.control.settings.v1";
+const LEGACY_TOKEN_SESSION_KEY = "openclaw.control.token.v1";
+const TOKEN_SESSION_KEY_PREFIX = "openclaw.control.token.v1:";
 
-const LEGACY_KEY = "openclaw.control.settings.v1";
-const MIGRATION_COMPLETE_KEY = "openclaw.storage.migrated.v1";
+type PersistedUiSettings = Omit<UiSettings, "token"> & { token?: never };
+
+import { isSupportedLocale } from "../i18n/index.ts";
+import { inferBasePathFromPathname, normalizeBasePath } from "./navigation.ts";
+import { parseThemeSelection, type ThemeMode, type ThemeName } from "./theme.ts";
 
 export type UiSettings = {
   gatewayUrl: string;
   token: string;
   sessionKey: string;
   lastActiveSessionKey: string;
-  theme: ThemeMode;
+  theme: ThemeName;
+  themeMode: ThemeMode;
   chatFocusMode: boolean;
   chatShowThinking: boolean;
   splitRatio: number; // Sidebar split ratio (0.4 to 0.7, default 0.6)
   navCollapsed: boolean; // Collapsible sidebar state
+  navWidth: number; // Sidebar width when expanded (240–400px)
   navGroupsCollapsed: Record<string, boolean>; // Which nav groups are collapsed
   locale?: string;
 };
 
-const storage = new StorageController();
+function isViteDevPage(): boolean {
+  if (typeof document === "undefined") {
+    return false;
+  }
+  return Boolean(document.querySelector('script[src*="/@vite/client"]'));
+}
 
-export function getDefaultSettings(): UiSettings {
-  const defaultUrl = (() => {
-    const proto = location.protocol === "https:" ? "wss" : "ws";
-    return `${proto}://${location.host}`;
-  })();
+function formatHostWithPort(hostname: string, port: string): string {
+  const normalizedHost = hostname.includes(":") ? `[${hostname}]` : hostname;
+  return `${normalizedHost}:${port}`;
+}
 
-  return {
+function deriveDefaultGatewayUrl(): { pageUrl: string; effectiveUrl: string } {
+  const proto = location.protocol === "https:" ? "wss" : "ws";
+  const configured =
+    typeof window !== "undefined" &&
+    typeof window.__OPENCLAW_CONTROL_UI_BASE_PATH__ === "string" &&
+    window.__OPENCLAW_CONTROL_UI_BASE_PATH__.trim();
+  const basePath = configured
+    ? normalizeBasePath(configured)
+    : inferBasePathFromPathname(location.pathname);
+  const pageUrl = `${proto}://${location.host}${basePath}`;
+  if (!isViteDevPage()) {
+    return { pageUrl, effectiveUrl: pageUrl };
+  }
+  const effectiveUrl = `${proto}://${formatHostWithPort(location.hostname, "18789")}`;
+  return { pageUrl, effectiveUrl };
+}
+
+function getSessionStorage(): Storage | null {
+  if (typeof window !== "undefined" && window.sessionStorage) {
+    return window.sessionStorage;
+  }
+  if (typeof sessionStorage !== "undefined") {
+    return sessionStorage;
+  }
+  return null;
+}
+
+function normalizeGatewayTokenScope(gatewayUrl: string): string {
+  const trimmed = gatewayUrl.trim();
+  if (!trimmed) {
+    return "default";
+  }
+  try {
+    const base =
+      typeof location !== "undefined"
+        ? `${location.protocol}//${location.host}${location.pathname || "/"}`
+        : undefined;
+    const parsed = base ? new URL(trimmed, base) : new URL(trimmed);
+    const pathname =
+      parsed.pathname === "/" ? "" : parsed.pathname.replace(/\/+$/, "") || parsed.pathname;
+    return `${parsed.protocol}//${parsed.host}${pathname}`;
+  } catch {
+    return trimmed;
+  }
+}
+
+function tokenSessionKeyForGateway(gatewayUrl: string): string {
+  return `${TOKEN_SESSION_KEY_PREFIX}${normalizeGatewayTokenScope(gatewayUrl)}`;
+}
+
+function loadSessionToken(gatewayUrl: string): string {
+  try {
+    const storage = getSessionStorage();
+    if (!storage) {
+      return "";
+    }
+    storage.removeItem(LEGACY_TOKEN_SESSION_KEY);
+    const token = storage.getItem(tokenSessionKeyForGateway(gatewayUrl)) ?? "";
+    return token.trim();
+  } catch {
+    return "";
+  }
+}
+
+function persistSessionToken(gatewayUrl: string, token: string) {
+  try {
+    const storage = getSessionStorage();
+    if (!storage) {
+      return;
+    }
+    storage.removeItem(LEGACY_TOKEN_SESSION_KEY);
+    const key = tokenSessionKeyForGateway(gatewayUrl);
+    const normalized = token.trim();
+    if (normalized) {
+      storage.setItem(key, normalized);
+      return;
+    }
+    storage.removeItem(key);
+  } catch {
+    // best-effort
+  }
+}
+
+export function loadSettings(): UiSettings {
+  const { pageUrl: pageDerivedUrl, effectiveUrl: defaultUrl } = deriveDefaultGatewayUrl();
+
+  const defaults: UiSettings = {
     gatewayUrl: defaultUrl,
-    token: "",
+    token: loadSessionToken(defaultUrl),
     sessionKey: "main",
     lastActiveSessionKey: "main",
-    theme: "system",
+    theme: "claw",
+    themeMode: "system",
     chatFocusMode: false,
     chatShowThinking: true,
     splitRatio: 0.6,
     navCollapsed: false,
+    navWidth: 220,
     navGroupsCollapsed: {},
   };
-}
 
-/**
- * Legacy sync loader for initial state.
- * Returns what's in localStorage or defaults.
- */
-export function loadSettings(): UiSettings {
-  const defaults = getDefaultSettings();
   try {
-    const raw = localStorage.getItem(LEGACY_KEY);
+    const raw = localStorage.getItem(KEY);
     if (!raw) {
       return defaults;
     }
     const parsed = JSON.parse(raw) as Partial<UiSettings>;
-    return {
-      ...defaults,
-      ...parsed,
+    const parsedGatewayUrl =
+      typeof parsed.gatewayUrl === "string" && parsed.gatewayUrl.trim()
+        ? parsed.gatewayUrl.trim()
+        : defaults.gatewayUrl;
+    const gatewayUrl = parsedGatewayUrl === pageDerivedUrl ? defaultUrl : parsedGatewayUrl;
+    const { theme, mode } = parseThemeSelection(
+      (parsed as { theme?: unknown }).theme,
+      (parsed as { themeMode?: unknown }).themeMode,
+    );
+    const settings = {
+      gatewayUrl,
+      // Gateway auth is intentionally in-memory only; scrub any legacy persisted token on load.
+      token: loadSessionToken(gatewayUrl),
+      sessionKey:
+        typeof parsed.sessionKey === "string" && parsed.sessionKey.trim()
+          ? parsed.sessionKey.trim()
+          : defaults.sessionKey,
+      lastActiveSessionKey:
+        typeof parsed.lastActiveSessionKey === "string" && parsed.lastActiveSessionKey.trim()
+          ? parsed.lastActiveSessionKey.trim()
+          : (typeof parsed.sessionKey === "string" && parsed.sessionKey.trim()) ||
+            defaults.lastActiveSessionKey,
+      theme,
+      themeMode: mode,
+      chatFocusMode:
+        typeof parsed.chatFocusMode === "boolean" ? parsed.chatFocusMode : defaults.chatFocusMode,
+      chatShowThinking:
+        typeof parsed.chatShowThinking === "boolean"
+          ? parsed.chatShowThinking
+          : defaults.chatShowThinking,
+      splitRatio:
+        typeof parsed.splitRatio === "number" &&
+        parsed.splitRatio >= 0.4 &&
+        parsed.splitRatio <= 0.7
+          ? parsed.splitRatio
+          : defaults.splitRatio,
+      navCollapsed:
+        typeof parsed.navCollapsed === "boolean" ? parsed.navCollapsed : defaults.navCollapsed,
+      navWidth:
+        typeof parsed.navWidth === "number" && parsed.navWidth >= 200 && parsed.navWidth <= 400
+          ? parsed.navWidth
+          : defaults.navWidth,
+      navGroupsCollapsed:
+        typeof parsed.navGroupsCollapsed === "object" && parsed.navGroupsCollapsed !== null
+          ? parsed.navGroupsCollapsed
+          : defaults.navGroupsCollapsed,
       locale: isSupportedLocale(parsed.locale) ? parsed.locale : undefined,
-    } as UiSettings;
+    };
+    if ("token" in parsed) {
+      persistSettings(settings);
+    }
+    return settings;
   } catch {
     return defaults;
   }
 }
 
-/**
- * Migration shim: Check if migration is needed and perform it once.
- */
-export async function ensureStorageMigrated(): Promise<void> {
-  if (localStorage.getItem(MIGRATION_COMPLETE_KEY)) {
-    return;
-  }
-
-  const legacySettings = loadSettings();
-  await storage.saveUIState({
-    id: "global",
-    updatedAt: Date.now(),
-    ...legacySettings,
-  });
-
-  localStorage.setItem(MIGRATION_COMPLETE_KEY, "true");
-}
-
-export async function loadUIState(): Promise<UiSettings> {
-  await ensureStorageMigrated();
-  const state = await storage.getUIState();
-  const defaults = getDefaultSettings();
-  if (!state) {
-    return defaults;
-  }
-  return {
-    ...defaults,
-    ...state,
-  } as UiSettings;
-}
-
-export async function saveUIState(settings: UiSettings): Promise<void> {
-  await storage.saveUIState({
-    ...settings,
-    id: "global",
-    updatedAt: Date.now(),
-  });
-  // Keep localStorage in sync for now to support legacy call sites
-  localStorage.setItem(LEGACY_KEY, JSON.stringify(settings));
-}
-
-export interface ExternalMessage {
-  id?: string;
-  role: "user" | "assistant" | "system" | "tool";
-  content: unknown;
-  timestamp?: number;
-  metadata?: Record<string, unknown>;
-}
-
-const EXTERNAL_MESSAGE_ROLES = new Set<ExternalMessage["role"]>([
-  "user",
-  "assistant",
-  "system",
-  "tool",
-]);
-
-function parseStoredMessageContent(content: string): unknown {
-  if (!content.startsWith("[") && !content.startsWith("{")) {
-    return content;
-  }
-  try {
-    return JSON.parse(content);
-  } catch {
-    return content;
-  }
-}
-
-export function toExternalMessage(message: Message): ExternalMessage {
-  return {
-    id: message.id,
-    role: message.role,
-    content: parseStoredMessageContent(message.content),
-    timestamp: message.createdAt,
-    metadata: message.metadata,
-  };
-}
-
-export function isExternalMessage(value: unknown): value is ExternalMessage {
-  if (!value || typeof value !== "object") {
-    return false;
-  }
-  const candidate = value as Record<string, unknown>;
-  return (
-    typeof candidate.role === "string" &&
-    EXTERNAL_MESSAGE_ROLES.has(candidate.role as ExternalMessage["role"]) &&
-    "content" in candidate
-  );
-}
-
-export async function persistSessionMessages(
-  sessionId: string,
-  messages: ExternalMessage[],
-): Promise<void> {
-  if (!sessionId) {
-    return;
-  }
-
-  const internalMessages: Message[] = messages.map((m, i) => ({
-    id: m.id || `${sessionId}-${i}-${m.timestamp || Date.now()}`,
-    sessionId,
-    role: m.role,
-    content: typeof m.content === "string" ? m.content : JSON.stringify(m.content),
-    createdAt: m.timestamp || Date.now(),
-    updatedAt: Date.now(),
-    metadata: m.metadata,
-  }));
-
-  await storage.saveMessages(internalMessages);
-
-  // Update session preview
-  const lastMsg = internalMessages[internalMessages.length - 1];
-  if (lastMsg) {
-    const existing = await storage.getSession(sessionId);
-    await storage.saveSession({
-      id: sessionId,
-      title: existing?.title || sessionId,
-      lastMessagePreview: lastMsg.content.slice(0, 100),
-      updatedAt: Date.now(),
-      createdAt: existing?.createdAt || Date.now(),
-    });
-  }
-}
-
-// Session management
-export async function loadSession(sessionId: string): Promise<SessionMetadata | null> {
-  return storage.getSession(sessionId);
-}
-
-export async function saveSession(session: SessionMetadata): Promise<void> {
-  return storage.saveSession(session);
-}
-
-export async function listSessions(): Promise<SessionMetadata[]> {
-  const sessions = await storage.listSessions();
-  return [...sessions].toSorted((a, b) => b.updatedAt - a.updatedAt);
-}
-
-export async function deleteSession(sessionId: string): Promise<void> {
-  return storage.deleteSession(sessionId);
-}
-
-// Message management
-export async function loadMessages(sessionId: string): Promise<Message[]> {
-  return storage.getMessages(sessionId);
-}
-
-export async function saveMessages(messages: Message[]): Promise<void> {
-  return storage.saveMessages(messages);
-}
-
-// Project state management
-export async function loadProjectState(sessionId: string): Promise<ProjectState | null> {
-  return storage.getProjectState(sessionId);
-}
-
-export async function saveProjectState(state: ProjectState): Promise<void> {
-  return storage.saveProjectState(state);
-}
-
-// Legacy saveSettings export
 export function saveSettings(next: UiSettings) {
-  saveUIState(next).catch(console.error);
+  persistSettings(next);
+}
+
+function persistSettings(next: UiSettings) {
+  persistSessionToken(next.gatewayUrl, next.token);
+  const persisted: PersistedUiSettings = {
+    gatewayUrl: next.gatewayUrl,
+    sessionKey: next.sessionKey,
+    lastActiveSessionKey: next.lastActiveSessionKey,
+    theme: next.theme,
+    themeMode: next.themeMode,
+    chatFocusMode: next.chatFocusMode,
+    chatShowThinking: next.chatShowThinking,
+    splitRatio: next.splitRatio,
+    navCollapsed: next.navCollapsed,
+    navWidth: next.navWidth,
+    navGroupsCollapsed: next.navGroupsCollapsed,
+    ...(next.locale ? { locale: next.locale } : {}),
+  };
+  localStorage.setItem(KEY, JSON.stringify(persisted));
 }

@@ -142,11 +142,11 @@ function normalizeSystemEventInput(
   };
 }
 
-export function enqueueSystemEvent(input: SystemEventInput, options: SystemEventOptions) {
+export function enqueueSystemEvent(input: SystemEventInput, options: SystemEventOptions): boolean {
   const key = requireSessionKey(options?.sessionKey);
   const event = normalizeSystemEventInput(input, options);
   if (!event) {
-    return;
+    return false;
   }
   const entry =
     queues.get(key) ??
@@ -162,13 +162,14 @@ export function enqueueSystemEvent(input: SystemEventInput, options: SystemEvent
 
   entry.lastContextKey = event.contextKey ?? null;
   if (entry.lastText === event.text) {
-    return;
-  } // skip consecutive duplicates
+    return false;
+  }
   entry.lastText = event.text;
   entry.queue.push(event);
   if (entry.queue.length > MAX_EVENTS) {
     entry.queue.shift();
   }
+  return true;
 }
 
 export function drainSystemEventEntries(sessionKey: string): SystemEvent[] {

@@ -1,5 +1,8 @@
-import * as fs from "node:fs/promises";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  readFileUtf8AndCleanup,
+  stubFetchTextResponse,
+} from "../test-utils/camera-url-test-helpers.js";
 
 const { callGateway } = vi.hoisted(() => ({
   callGateway: vi.fn(),
@@ -22,6 +25,23 @@ const JPG_PAYLOAD = {
   width: 1,
   height: 1,
 } as const;
+const PHOTOS_LATEST_ACTION_INPUT = { action: "photos_latest", node: NODE_ID } as const;
+const PHOTOS_LATEST_DEFAULT_PARAMS = {
+  limit: 1,
+  maxWidth: 1600,
+  quality: 0.85,
+} as const;
+const PHOTOS_LATEST_PAYLOAD = {
+  photos: [
+    {
+      format: "jpeg",
+      base64: "aGVsbG8=",
+      width: 1,
+      height: 1,
+      createdAt: "2026-03-04T00:00:00Z",
+    },
+  ],
+} as const;
 
 type GatewayCall = { method: string; params?: unknown };
 
@@ -29,16 +49,29 @@ function unexpectedGatewayMethod(method: unknown): never {
   throw new Error(`unexpected method: ${String(method)}`);
 }
 
-function getNodesTool() {
-  const tool = createOpenClawTools().find((candidate) => candidate.name === "nodes");
+function getNodesTool(options?: { modelHasVision?: boolean; allowMediaInvokeCommands?: boolean }) {
+  const toolOptions: {
+    modelHasVision?: boolean;
+    allowMediaInvokeCommands?: boolean;
+  } = {};
+  if (options?.modelHasVision !== undefined) {
+    toolOptions.modelHasVision = options.modelHasVision;
+  }
+  if (options?.allowMediaInvokeCommands !== undefined) {
+    toolOptions.allowMediaInvokeCommands = options.allowMediaInvokeCommands;
+  }
+  const tool = createOpenClawTools(toolOptions).find((candidate) => candidate.name === "nodes");
   if (!tool) {
     throw new Error("missing nodes tool");
   }
   return tool;
 }
 
-async function executeNodes(input: Record<string, unknown>) {
-  return getNodesTool().execute("call1", input as never);
+async function executeNodes(
+  input: Record<string, unknown>,
+  options?: { modelHasVision?: boolean; allowMediaInvokeCommands?: boolean },
+) {
+  return getNodesTool(options).execute("call1", input as never);
 }
 
 type NodesToolResult = Awaited<ReturnType<typeof executeNodes>>;
@@ -62,6 +95,11 @@ function expectSingleImage(result: NodesToolResult, params?: { mimeType?: string
   if (params?.mimeType) {
     expect(images[0]?.mimeType).toBe(params.mimeType);
   }
+}
+
+function expectNoImages(result: NodesToolResult) {
+  const images = (result.content ?? []).filter((block) => block.type === "image");
+  expect(images).toHaveLength(0);
 }
 
 function expectFirstTextContains(result: NodesToolResult, expectedText: string) {
@@ -97,12 +135,10 @@ function setupNodeInvokeMock(params: {
 function createSystemRunPreparePayload(cwd: string | null) {
   return {
     payload: {
-      cmdText: "echo hi",
       plan: {
-        version: 2,
         argv: ["echo", "hi"],
         cwd,
-        rawCommand: "echo hi",
+        commandText: "echo hi",
         agentId: null,
         sessionKey: null,
       },
@@ -133,6 +169,25 @@ function setupSystemRunGateway(params: {
   });
 }
 
+function setupPhotosLatestMock(params?: { remoteIp?: string }) {
+  setupNodeInvokeMock({
+    ...(params?.remoteIp ? { remoteIp: params.remoteIp } : {}),
+    onInvoke: (invokeParams) => {
+      expect(invokeParams).toMatchObject({
+        command: "photos.latest",
+        params: PHOTOS_LATEST_DEFAULT_PARAMS,
+      });
+      return { payload: PHOTOS_LATEST_PAYLOAD };
+    },
+  });
+}
+
+async function executePhotosLatest(params: { modelHasVision: boolean }) {
+  return executeNodes(PHOTOS_LATEST_ACTION_INPUT, {
+    modelHasVision: params.modelHasVision,
+  });
+}
+
 beforeEach(() => {
   callGateway.mockClear();
   vi.unstubAllGlobals();
@@ -154,10 +209,13 @@ describe("nodes camera_snap", () => {
       },
     });
 
-    const result = await executeNodes({
-      action: "camera_snap",
-      node: NODE_ID,
-    });
+    const result = await executeNodes(
+      {
+        action: "camera_snap",
+        node: NODE_ID,
+      },
+      { modelHasVision: true },
+    );
 
     expectSingleImage(result);
   });
@@ -167,13 +225,37 @@ describe("nodes camera_snap", () => {
       invokePayload: JPG_PAYLOAD,
     });
 
-    const result = await executeNodes({
-      action: "camera_snap",
-      node: NODE_ID,
-      facing: "front",
-    });
+    const result = await executeNodes(
+      {
+        action: "camera_snap",
+        node: NODE_ID,
+        facing: "front",
+      },
+      { modelHasVision: true },
+    );
 
     expectSingleImage(result, { mimeType: "image/jpeg" });
+  });
+
+  it("omits inline base64 image blocks when model has no vision", async () => {
+    setupNodeInvokeMock({
+      invokePayload: JPG_PAYLOAD,
+    });
+
+    const result = await executeNodes(
+      {
+        action: "camera_snap",
+        node: NODE_ID,
+        facing: "front",
+      },
+      { modelHasVision: false },
+    );
+
+    expectNoImages(result);
+    expect(result.content?.[0]).toMatchObject({
+      type: "text",
+      text: expect.stringMatching(/^MEDIA:/),
+    });
   });
 
   it("passes deviceId when provided", async () => {
@@ -207,10 +289,7 @@ describe("nodes camera_snap", () => {
   });
 
   it("downloads camera_snap url payloads when node remoteIp is available", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("url-image", { status: 200 })),
-    );
+    stubFetchTextResponse("url-image");
     setupNodeInvokeMock({
       remoteIp: "198.51.100.42",
       invokePayload: {
@@ -231,18 +310,11 @@ describe("nodes camera_snap", () => {
     const mediaPath = String((result.content?.[0] as { text?: string } | undefined)?.text ?? "")
       .replace(/^MEDIA:/, "")
       .trim();
-    try {
-      await expect(fs.readFile(mediaPath, "utf8")).resolves.toBe("url-image");
-    } finally {
-      await fs.unlink(mediaPath).catch(() => {});
-    }
+    await expect(readFileUtf8AndCleanup(mediaPath)).resolves.toBe("url-image");
   });
 
   it("rejects camera_snap url payloads when node remoteIp is missing", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("url-image", { status: 200 })),
-    );
+    stubFetchTextResponse("url-image");
     setupNodeInvokeMock({
       invokePayload: {
         format: "jpg",
@@ -264,10 +336,7 @@ describe("nodes camera_snap", () => {
 
 describe("nodes camera_clip", () => {
   it("downloads camera_clip url payloads when node remoteIp is available", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("url-clip", { status: 200 })),
-    );
+    stubFetchTextResponse("url-clip");
     setupNodeInvokeMock({
       remoteIp: "198.51.100.42",
       invokePayload: {
@@ -286,18 +355,11 @@ describe("nodes camera_clip", () => {
     const filePath = String((result.content?.[0] as { text?: string } | undefined)?.text ?? "")
       .replace(/^FILE:/, "")
       .trim();
-    try {
-      await expect(fs.readFile(filePath, "utf8")).resolves.toBe("url-clip");
-    } finally {
-      await fs.unlink(filePath).catch(() => {});
-    }
+    await expect(readFileUtf8AndCleanup(filePath)).resolves.toBe("url-clip");
   });
 
   it("rejects camera_clip url payloads when node remoteIp is missing", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async () => new Response("url-clip", { status: 200 })),
-    );
+    stubFetchTextResponse("url-clip");
     setupNodeInvokeMock({
       invokePayload: {
         format: "mp4",
@@ -314,6 +376,69 @@ describe("nodes camera_clip", () => {
         facing: "front",
       }),
     ).rejects.toThrow(/node remoteip/i);
+  });
+});
+
+describe("nodes photos_latest", () => {
+  it("returns empty content/details when no photos are available", async () => {
+    setupNodeInvokeMock({
+      onInvoke: (invokeParams) => {
+        expect(invokeParams).toMatchObject({
+          command: "photos.latest",
+          params: {
+            limit: 1,
+            maxWidth: 1600,
+            quality: 0.85,
+          },
+        });
+        return {
+          payload: {
+            photos: [],
+          },
+        };
+      },
+    });
+
+    const result = await executeNodes(
+      {
+        action: "photos_latest",
+        node: NODE_ID,
+      },
+      { modelHasVision: false },
+    );
+
+    expect(result.content ?? []).toEqual([]);
+    expect(result.details).toEqual([]);
+  });
+
+  it("returns MEDIA paths and no inline images when model has no vision", async () => {
+    setupPhotosLatestMock({ remoteIp: "198.51.100.42" });
+
+    const result = await executePhotosLatest({ modelHasVision: false });
+
+    expectNoImages(result);
+    expect(result.content?.[0]).toMatchObject({
+      type: "text",
+      text: expect.stringMatching(/^MEDIA:/),
+    });
+    const details = Array.isArray(result.details) ? result.details : [];
+    expect(details[0]).toMatchObject({
+      width: 1,
+      height: 1,
+      createdAt: "2026-03-04T00:00:00Z",
+    });
+  });
+
+  it("includes inline image blocks when model has vision", async () => {
+    setupPhotosLatestMock();
+
+    const result = await executePhotosLatest({ modelHasVision: true });
+
+    expect(result.content?.[0]).toMatchObject({
+      type: "text",
+      text: expect.stringMatching(/^MEDIA:/),
+    });
+    expectSingleImage(result, { mimeType: "image/jpeg" });
   });
 });
 
@@ -536,10 +661,9 @@ describe("nodes run", () => {
       onApprovalRequest: (approvalParams) => {
         expect(approvalParams).toMatchObject({
           id: expect.any(String),
-          command: "echo hi",
-          commandArgv: ["echo", "hi"],
-          systemRunPlanV2: expect.objectContaining({
+          systemRunPlan: expect.objectContaining({
             argv: ["echo", "hi"],
+            commandText: "echo hi",
           }),
           nodeId: NODE_ID,
           host: "node",
@@ -592,5 +716,78 @@ describe("nodes run", () => {
     await expect(executeNodes(BASE_RUN_INPUT)).rejects.toThrow(
       "exec denied: invalid approval decision",
     );
+  });
+});
+
+describe("nodes invoke", () => {
+  it("allows metadata-only camera.list via generic invoke", async () => {
+    setupNodeInvokeMock({
+      onInvoke: (invokeParams) => {
+        expect(invokeParams).toMatchObject({
+          command: "camera.list",
+          params: {},
+        });
+        return {
+          payload: {
+            devices: [{ id: "cam-back", name: "Back Camera" }],
+          },
+        };
+      },
+    });
+
+    const result = await executeNodes({
+      action: "invoke",
+      node: NODE_ID,
+      invokeCommand: "camera.list",
+    });
+
+    expect(result.details).toMatchObject({
+      payload: {
+        devices: [{ id: "cam-back", name: "Back Camera" }],
+      },
+    });
+  });
+
+  it("blocks media invoke commands to avoid base64 context bloat", async () => {
+    await expect(
+      executeNodes({
+        action: "invoke",
+        node: NODE_ID,
+        invokeCommand: "photos.latest",
+        invokeParamsJson: '{"limit":1}',
+      }),
+    ).rejects.toThrow(/use action="photos_latest"/i);
+  });
+
+  it("allows media invoke commands when explicitly enabled", async () => {
+    setupNodeInvokeMock({
+      onInvoke: (invokeParams) => {
+        expect(invokeParams).toMatchObject({
+          command: "photos.latest",
+          params: { limit: 1 },
+        });
+        return {
+          payload: {
+            photos: [{ format: "jpg", base64: "aGVsbG8=", width: 1, height: 1 }],
+          },
+        };
+      },
+    });
+
+    const result = await executeNodes(
+      {
+        action: "invoke",
+        node: NODE_ID,
+        invokeCommand: "photos.latest",
+        invokeParamsJson: '{"limit":1}',
+      },
+      { allowMediaInvokeCommands: true },
+    );
+
+    expect(result.details).toMatchObject({
+      payload: {
+        photos: [{ format: "jpg", base64: "aGVsbG8=", width: 1, height: 1 }],
+      },
+    });
   });
 });

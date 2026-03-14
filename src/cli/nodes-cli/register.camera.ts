@@ -1,15 +1,14 @@
 import type { Command } from "commander";
 import { defaultRuntime } from "../../runtime.js";
-import { renderTable } from "../../terminal/table.js";
+import { getTerminalTableWidth, renderTable } from "../../terminal/table.js";
 import { shortenHomePath } from "../../utils.js";
 import {
   type CameraFacing,
   cameraTempPath,
   parseCameraClipPayload,
   parseCameraSnapPayload,
-  writeBase64ToFile,
+  writeCameraPayloadToFile,
   writeCameraClipPayloadToFile,
-  writeUrlToFile,
 } from "../nodes-camera.js";
 import { parseDurationMs } from "../parse-duration.js";
 import { getNodesTheme, runNodesCommand } from "./cli-utils.js";
@@ -31,6 +30,12 @@ const parseFacing = (value: string): CameraFacing => {
   }
   throw new Error(`invalid facing: ${value} (expected front|back)`);
 };
+
+function getGatewayInvokePayload(raw: unknown): unknown {
+  return typeof raw === "object" && raw !== null
+    ? (raw as { payload?: unknown }).payload
+    : undefined;
+}
 
 export function registerNodesCameraCommands(nodes: Command) {
   const camera = nodes.command("camera").description("Capture camera media from a paired node");
@@ -72,7 +77,7 @@ export function registerNodesCameraCommands(nodes: Command) {
           }
 
           const { heading, muted } = getNodesTheme();
-          const tableWidth = Math.max(60, (process.stdout.columns ?? 120) - 1);
+          const tableWidth = getTerminalTableWidth();
           const rows = devices.map((device) => ({
             Name: typeof device.name === "string" ? device.name : "Unknown Camera",
             Position: typeof device.position === "string" ? device.position : muted("unspecified"),
@@ -158,22 +163,18 @@ export function registerNodesCameraCommands(nodes: Command) {
             });
 
             const raw = await callGatewayCli("node.invoke", opts, invokeParams);
-            const res =
-              typeof raw === "object" && raw !== null ? (raw as { payload?: unknown }) : {};
-            const payload = parseCameraSnapPayload(res.payload);
+            const payload = parseCameraSnapPayload(getGatewayInvokePayload(raw));
             const filePath = cameraTempPath({
               kind: "snap",
               facing,
               ext: payload.format === "jpeg" ? "jpg" : payload.format,
             });
-            if (payload.url) {
-              if (!node.remoteIp) {
-                throw new Error("camera URL payload requires node remoteIp");
-              }
-              await writeUrlToFile(filePath, payload.url, { expectedHost: node.remoteIp });
-            } else if (payload.base64) {
-              await writeBase64ToFile(filePath, payload.base64);
-            }
+            await writeCameraPayloadToFile({
+              filePath,
+              payload,
+              expectedHost: node.remoteIp,
+              invalidPayloadMessage: "invalid camera.snap payload",
+            });
             results.push({
               facing,
               path: filePath,
@@ -232,8 +233,7 @@ export function registerNodesCameraCommands(nodes: Command) {
           });
 
           const raw = await callGatewayCli("node.invoke", opts, invokeParams);
-          const res = typeof raw === "object" && raw !== null ? (raw as { payload?: unknown }) : {};
-          const payload = parseCameraClipPayload(res.payload);
+          const payload = parseCameraClipPayload(getGatewayInvokePayload(raw));
           const filePath = await writeCameraClipPayloadToFile({
             payload,
             facing,
