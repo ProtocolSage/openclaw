@@ -4,6 +4,10 @@ import type { ThinkLevel } from "../auto-reply/thinking.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { shouldLogVerbose } from "../globals.js";
 import { isTruthyEnvValue } from "../infra/env.js";
+import {
+  renderVerificationSummary,
+  type VerificationScopeReport,
+} from "../infra/verification-scope.js";
 import { createSubsystemLogger } from "../logging/subsystem.js";
 import { getProcessSupervisor } from "../process/supervisor/index.js";
 import { resolveSessionAgentIds } from "./agent-scope.js";
@@ -50,6 +54,7 @@ export async function runCliAgent(params: {
   ownerNumbers?: string[];
   cliSessionId?: string;
   images?: ImageContent[];
+  verificationScope?: VerificationScopeReport;
 }): Promise<EmbeddedPiRunResult> {
   const started = Date.now();
   const workspaceResolution = resolveRunWorkspaceDir({
@@ -320,7 +325,10 @@ export async function runCliAgent(params: {
       return parsed ?? { text: stdout };
     });
 
-    const text = output.text?.trim();
+    const verificationLines = params.verificationScope
+      ? renderVerificationSummary(params.verificationScope)
+      : [];
+    const text = [output.text?.trim(), ...verificationLines].filter(Boolean).join("\n");
     const payloads = text ? [{ text }] : undefined;
 
     return {
