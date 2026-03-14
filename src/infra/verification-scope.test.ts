@@ -10,7 +10,6 @@ describe("renderVerificationSummary", () => {
         fullTsc: "not-run",
         fullLint: "not-run",
         requiredRepoTests: "not-run",
-        repoHealth: "unknown",
       }),
     ).toEqual([
       "Patch applied",
@@ -30,7 +29,6 @@ describe("renderVerificationSummary", () => {
         fullTsc: "not-run",
         fullLint: "not-run",
         requiredRepoTests: "not-run",
-        repoHealth: "unknown",
       }),
     ).toEqual([
       "Targeted tests passed",
@@ -49,7 +47,6 @@ describe("renderVerificationSummary", () => {
         fullTsc: "failed",
         fullLint: "not-run",
         requiredRepoTests: "not-run",
-        repoHealth: "unknown",
         reasons: { fullTsc: "tsc exited 2" },
       }),
     ).toEqual([
@@ -69,7 +66,6 @@ describe("renderVerificationSummary", () => {
         fullTsc: "passed",
         fullLint: "passed",
         requiredRepoTests: "not-run",
-        repoHealth: "established",
       }),
     ).toEqual([
       "Targeted tests passed",
@@ -88,7 +84,6 @@ describe("renderVerificationSummary", () => {
         fullTsc: "passed",
         fullLint: "failed",
         requiredRepoTests: "passed",
-        repoHealth: "unknown",
       }),
     ).toEqual([
       "Targeted tests passed",

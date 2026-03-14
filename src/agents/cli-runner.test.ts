@@ -124,7 +124,6 @@ describe("runCliAgent with process supervisor", () => {
         fullTsc: "not-run",
         fullLint: "not-run",
         requiredRepoTests: "not-run",
-        repoHealth: "unknown",
       },
     });
 
@@ -168,7 +167,6 @@ describe("runCliAgent with process supervisor", () => {
         fullTsc: "not-run",
         fullLint: "not-run",
         requiredRepoTests: "not-run",
-        repoHealth: "unknown",
       },
     });
 
@@ -213,7 +211,6 @@ describe("runCliAgent with process supervisor", () => {
         fullTsc: "passed",
         fullLint: "passed",
         requiredRepoTests: "passed",
-        repoHealth: "established",
       },
     });
 

@@ -6,13 +6,11 @@ export type VerificationScopeReport = {
   fullTsc: VerificationResult;
   fullLint: VerificationResult;
   requiredRepoTests: VerificationResult;
-  repoHealth: "established" | "unknown";
   reasons?: Partial<{
     targetedTests: string;
     fullTsc: string;
     fullLint: string;
     requiredRepoTests: string;
-    repoHealth: string;
   }>;
 };
 
@@ -66,7 +64,6 @@ export function renderVerificationSummary(report: VerificationScopeReport): stri
   );
 
   const repoHealthEstablished =
-    report.repoHealth === "established" &&
     report.fullTsc === "passed" &&
     report.fullLint === "passed" &&
     report.requiredRepoTests === "passed";
