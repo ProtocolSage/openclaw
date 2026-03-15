@@ -105,7 +105,7 @@ echo "  Repo-wide health: $REPO_HEALTH"
 echo "=== 6. Verify Hardening Commits Survived ==="
 MISSING=()
 for commit in "${HARDENING_COMMITS[@]}"; do
-  if ! git log main --oneline | grep -qF "$commit"; then
+  if ! git log main --format="%s" | grep -qF "$commit"; then
     MISSING+=("$commit")
   fi
 done
