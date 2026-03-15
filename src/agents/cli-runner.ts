@@ -6,6 +6,7 @@ import { shouldLogVerbose } from "../globals.js";
 import { isTruthyEnvValue } from "../infra/env.js";
 import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
+import { persistVerificationArtifact } from "../infra/verification-artifact-store.js";
 import {
   renderVerificationSummary,
   type VerificationScopeReport,
@@ -412,8 +413,14 @@ export async function runCliAgent(params: {
   // Try with the provided CLI session ID first
   try {
     const output = await executeCliWithSession(params.cliSessionId);
-    const verificationLines = params.verificationScope
-      ? renderVerificationSummary(params.verificationScope)
+    const verificationRecord = params.verificationScope
+      ? await persistVerificationArtifact({
+          runId: params.runId,
+          report: params.verificationScope,
+        })
+      : undefined;
+    const verificationLines = verificationRecord
+      ? renderVerificationSummary(verificationRecord.report)
       : [];
     const text = [output.text?.trim(), ...verificationLines].filter(Boolean).join("\n");
     const payloads = text ? [{ text }] : undefined;
@@ -445,8 +452,14 @@ export async function runCliAgent(params: {
 
         // For now, retry without the session ID to create a new session
         const output = await executeCliWithSession(undefined);
-        const verificationLines = params.verificationScope
-          ? renderVerificationSummary(params.verificationScope)
+        const verificationRecord = params.verificationScope
+          ? await persistVerificationArtifact({
+              runId: params.runId,
+              report: params.verificationScope,
+            })
+          : undefined;
+        const verificationLines = verificationRecord
+          ? renderVerificationSummary(verificationRecord.report)
           : [];
         const text = [output.text?.trim(), ...verificationLines].filter(Boolean).join("\n");
         const payloads = text ? [{ text }] : undefined;

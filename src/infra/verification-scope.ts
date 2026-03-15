@@ -1,4 +1,8 @@
 export type VerificationResult = "passed" | "failed" | "not-run";
+import {
+  loadRecentVerificationArtifacts,
+  type VerificationArtifactRecord,
+} from "./verification-artifact-store.js";
 
 export type VerificationScopeReport = {
   patchApplied: boolean;
@@ -73,4 +77,27 @@ export function renderVerificationSummary(report: VerificationScopeReport): stri
   lines.push(repoHealthLine);
 
   return lines;
+}
+
+export function renderStoredVerificationSummary(
+  record: VerificationArtifactRecord | null | undefined,
+): string[] {
+  if (!record) {
+    return ["No stored verification record found"];
+  }
+  return renderVerificationSummary(record.report);
+}
+
+export async function loadRecentVerificationReports(params?: {
+  limit?: number;
+  env?: NodeJS.ProcessEnv;
+}): Promise<VerificationArtifactRecord[]> {
+  return loadRecentVerificationArtifacts(params);
+}
+
+export async function renderLatestStoredVerificationSummary(params?: {
+  env?: NodeJS.ProcessEnv;
+}): Promise<string[]> {
+  const [latest] = await loadRecentVerificationReports({ limit: 1, env: params?.env });
+  return renderStoredVerificationSummary(latest);
 }

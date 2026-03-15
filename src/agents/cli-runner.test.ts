@@ -1,8 +1,10 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
+import { loadRecentVerificationReports } from "../infra/verification-scope.js";
+import { captureEnv } from "../test-utils/env.js";
 import { runCliAgent } from "./cli-runner.js";
 import { resolveCliNoOutputTimeoutMs } from "./cli-runner/helpers.js";
 
@@ -57,10 +59,16 @@ function createManagedRun(exit: MockRunExit, pid = 1234) {
 }
 
 describe("runCliAgent with process supervisor", () => {
+  const envSnapshot = captureEnv(["OPENCLAW_STATE_DIR"]);
+
   beforeEach(() => {
     supervisorSpawnMock.mockClear();
     enqueueSystemEventMock.mockClear();
     requestHeartbeatNowMock.mockClear();
+  });
+
+  afterEach(() => {
+    envSnapshot.restore();
   });
 
   it("runs CLI through supervisor and returns payload", async () => {
@@ -148,6 +156,56 @@ describe("runCliAgent with process supervisor", () => {
         "Repo-wide health unknown",
       ].join("\n"),
     );
+  });
+
+  it("persists verification artifacts for runs that provide verification scope", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-verification-cli-"));
+    process.env.OPENCLAW_STATE_DIR = tempDir;
+    supervisorSpawnMock.mockResolvedValueOnce(
+      createManagedRun({
+        reason: "exit",
+        exitCode: 0,
+        exitSignal: null,
+        durationMs: 50,
+        stdout: "",
+        stderr: "",
+        timedOut: false,
+        noOutputTimedOut: false,
+      }),
+    );
+
+    try {
+      await runCliAgent({
+        sessionId: "s1",
+        sessionFile: "/tmp/session.jsonl",
+        workspaceDir: "/tmp",
+        prompt: "hi",
+        provider: "codex-cli",
+        model: "gpt-5.2-codex",
+        timeoutMs: 1_000,
+        runId: "run-persisted",
+        verificationScope: {
+          patchApplied: false,
+          targetedTests: "passed",
+          fullTsc: "not-run",
+          fullLint: "not-run",
+          requiredRepoTests: "not-run",
+        },
+      });
+
+      const records = await loadRecentVerificationReports({ limit: 1, env: process.env });
+      expect(records).toHaveLength(1);
+      expect(records[0]?.runId).toBe("run-persisted");
+      expect(records[0]?.report).toEqual({
+        patchApplied: false,
+        targetedTests: "passed",
+        fullTsc: "not-run",
+        fullLint: "not-run",
+        requiredRepoTests: "not-run",
+      });
+    } finally {
+      await fs.rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("does not imply verification for a patch-only runtime path", async () => {
