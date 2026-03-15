@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OpenClawConfig } from "../config/config.js";
+import type { DeviceAuthEntry } from "../shared/device-auth.js";
 import { captureEnv } from "../test-utils/env.js";
 import {
   loadConfigMock as loadConfig,
@@ -7,6 +8,21 @@ import {
   pickPrimaryTailnetIPv4Mock as pickPrimaryTailnetIPv4,
   resolveGatewayPortMock as resolveGatewayPort,
 } from "./gateway-connection.test-mocks.js";
+
+const { loadOrCreateDeviceIdentityMock, loadDeviceAuthTokenMock } = vi.hoisted(() => {
+  const loadOrCreateDeviceIdentityMock = vi.fn(
+    () =>
+      ({
+        deviceId: "device-local",
+        publicKeyPem: "public",
+        privateKeyPem: "private",
+      }) as const,
+  );
+  const loadDeviceAuthTokenMock = vi.fn<
+    (params: { deviceId: string; role: string }) => DeviceAuthEntry | null
+  >(() => null);
+  return { loadOrCreateDeviceIdentityMock, loadDeviceAuthTokenMock };
+});
 
 let lastClientOptions: {
   url?: string;
@@ -73,6 +89,15 @@ vi.mock("./client.js", () => ({
   },
 }));
 
+vi.mock("../infra/device-identity.js", () => ({
+  loadOrCreateDeviceIdentity: () => loadOrCreateDeviceIdentityMock(),
+}));
+
+vi.mock("../infra/device-auth-store.js", () => ({
+  loadDeviceAuthToken: (params: { deviceId: string; role: string }) =>
+    loadDeviceAuthTokenMock(params),
+}));
+
 const { buildGatewayConnectionDetails, callGateway, callGatewayCli, callGatewayScoped } =
   await import("./call.js");
 
@@ -87,6 +112,9 @@ function resetGatewayCallMocks() {
   closeCode = 1006;
   closeReason = "";
   helloMethods = ["health", "secrets.resolve"];
+  loadOrCreateDeviceIdentityMock.mockClear();
+  loadDeviceAuthTokenMock.mockReset();
+  loadDeviceAuthTokenMock.mockReturnValue(null);
 }
 
 function setGatewayNetworkDefaults(port = 18789) {
@@ -209,7 +237,26 @@ describe("callGateway url resolution", () => {
     expect(lastClientOptions?.token).toBe("explicit-token");
   });
 
-  it("does not attach device identity for local loopback shared-token auth", async () => {
+  it("attaches device identity for local loopback shared-token auth when a paired operator token exists", async () => {
+    setLocalLoopbackGatewayConfig();
+    loadDeviceAuthTokenMock.mockReturnValue({
+      role: "operator",
+      token: "paired-token",
+      scopes: ["operator.read", "operator.write"],
+      updatedAtMs: 1,
+    });
+
+    await callGateway({
+      method: "health",
+      token: "explicit-token",
+    });
+
+    expect(lastClientOptions?.url).toBe("ws://127.0.0.1:18789");
+    expect(lastClientOptions?.token).toBe("explicit-token");
+    expect(lastClientOptions?.deviceIdentity).toMatchObject({ deviceId: "device-local" });
+  });
+
+  it("falls back to shared-token auth on loopback when no paired operator token exists", async () => {
     setLocalLoopbackGatewayConfig();
 
     await callGateway({
@@ -640,6 +687,10 @@ describe("callGateway url override auth requirements", () => {
     ]);
     resetGatewayCallMocks();
     setGatewayNetworkDefaults(18789);
+    delete process.env.OPENCLAW_GATEWAY_TOKEN;
+    delete process.env.CLAWDBOT_GATEWAY_TOKEN;
+    delete process.env.OPENCLAW_GATEWAY_PASSWORD;
+    delete process.env.CLAWDBOT_GATEWAY_PASSWORD;
   });
 
   afterEach(() => {
