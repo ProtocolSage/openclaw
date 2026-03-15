@@ -108,6 +108,12 @@ const fastExports = {
   resolveControlCommandGate,
 };
 
+// Fast path vs lazy path:
+// - `target` contains the small set of cheap synchronous exports that should be
+//   available without loading the full plugin-sdk entrypoint.
+// - the monolithic sdk is loaded only for value reads or descriptor lookups that
+//   genuinely need it. Cheap reflection (`in`, `has`, `Object.keys`) must stay on
+//   the fast path unless the monolithic sdk has already been loaded.
 const target = { ...fastExports };
 let rootExports = null;
 
@@ -171,7 +177,7 @@ rootExports = new Proxy(target, {
     if (Reflect.has(target, prop)) {
       return true;
     }
-    const monolithic = getMonolithicSdk();
+    const monolithic = getLoadedMonolithicSdk();
     return monolithic ? Reflect.has(monolithic, prop) : false;
   },
   ownKeys() {

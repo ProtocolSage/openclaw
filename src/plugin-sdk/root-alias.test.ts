@@ -113,10 +113,14 @@ describe("plugin-sdk root alias", () => {
     const lazyRootSdk = lazyModule.moduleExports;
 
     expect(lazyModule.createJitiCalls).toBe(0);
-    expect("slowHelper" in lazyRootSdk).toBe(true);
+    expect("slowHelper" in lazyRootSdk).toBe(false);
+    expect(Object.keys(lazyRootSdk)).not.toContain("slowHelper");
+    expect(lazyModule.createJitiCalls).toBe(0);
+    expect(lazyModule.jitiLoadCalls).toBe(0);
+    expect((lazyRootSdk.slowHelper as () => string)()).toBe("loaded");
     expect(lazyModule.createJitiCalls).toBe(1);
     expect(lazyModule.jitiLoadCalls).toBe(1);
-    expect((lazyRootSdk.slowHelper as () => string)()).toBe("loaded");
+    expect("slowHelper" in lazyRootSdk).toBe(true);
     expect(Object.keys(lazyRootSdk)).toContain("slowHelper");
     expect(Object.getOwnPropertyDescriptor(lazyRootSdk, "slowHelper")).toBeDefined();
   });
@@ -134,5 +138,31 @@ describe("plugin-sdk root alias", () => {
     expect(keys).toContain("resolveControlCommandGate");
     const descriptor = Object.getOwnPropertyDescriptor(rootSdk, "resolveControlCommandGate");
     expect(descriptor).toBeDefined();
+  });
+
+  it("keeps cheap reflection on the fast path until a lazy export is read", () => {
+    const lazyModule = loadRootAliasWithStubs({
+      monolithicExports: {
+        slowHelper: () => "loaded",
+      },
+    });
+    const lazyRootSdk = lazyModule.moduleExports;
+
+    expect("emptyPluginConfigSchema" in lazyRootSdk).toBe(true);
+    expect("slowHelper" in lazyRootSdk).toBe(false);
+    expect(Object.keys(lazyRootSdk)).toEqual([
+      "emptyPluginConfigSchema",
+      "resolveControlCommandGate",
+    ]);
+    expect(lazyModule.createJitiCalls).toBe(0);
+    expect(lazyModule.jitiLoadCalls).toBe(0);
+
+    const descriptorBeforeLoad = Object.getOwnPropertyDescriptor(lazyRootSdk, "slowHelper");
+    expect(descriptorBeforeLoad).toBeDefined();
+    expect(lazyModule.createJitiCalls).toBe(1);
+    expect(lazyModule.jitiLoadCalls).toBe(1);
+
+    expect("slowHelper" in lazyRootSdk).toBe(true);
+    expect(Object.keys(lazyRootSdk)).toContain("slowHelper");
   });
 });
