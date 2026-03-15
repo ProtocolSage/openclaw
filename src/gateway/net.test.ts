@@ -1,4 +1,3 @@
-import os from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   isLocalishHost,
@@ -339,12 +338,17 @@ describe("pickPrimaryLanIPv4", () => {
     ] as const;
 
     for (const testCase of cases) {
-      vi.spyOn(os, "networkInterfaces").mockReturnValue(
-        testCase.interfaces as unknown as ReturnType<typeof os.networkInterfaces>,
-      );
-      expect(pickPrimaryLanIPv4(), testCase.name).toBe(testCase.expected);
-      vi.restoreAllMocks();
+      const getNetworkInterfaces = () =>
+        testCase.interfaces as unknown as ReturnType<typeof import("node:os").networkInterfaces>;
+      expect(pickPrimaryLanIPv4(getNetworkInterfaces), testCase.name).toBe(testCase.expected);
     }
+  });
+
+  it("returns undefined when network interface inspection throws", () => {
+    const getNetworkInterfaces = () => {
+      throw new Error("EPERM");
+    };
+    expect(pickPrimaryLanIPv4(getNetworkInterfaces)).toBeUndefined();
   });
 });
 

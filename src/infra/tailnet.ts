@@ -6,6 +6,8 @@ export type TailnetAddresses = {
   ipv6: string[];
 };
 
+export type NetworkInterfacesProvider = () => ReturnType<typeof os.networkInterfaces>;
+
 const TAILNET_IPV4_CIDR = "100.64.0.0/10";
 const TAILNET_IPV6_CIDR = "fd7a:115c:a1e0::/48";
 
@@ -21,13 +23,15 @@ function isTailnetIPv6(address: string): boolean {
   return isIpInCidr(address, TAILNET_IPV6_CIDR);
 }
 
-export function listTailnetAddresses(): TailnetAddresses {
+export function listTailnetAddresses(
+  getNetworkInterfaces: NetworkInterfacesProvider = () => os.networkInterfaces(),
+): TailnetAddresses {
   const ipv4: string[] = [];
   const ipv6: string[] = [];
 
   let ifaces: ReturnType<typeof os.networkInterfaces>;
   try {
-    ifaces = os.networkInterfaces();
+    ifaces = getNetworkInterfaces();
   } catch {
     // Some sandboxed environments deny network interface inspection. Treat that
     // as "no tailnet interfaces detected" instead of crashing callers.
@@ -57,10 +61,14 @@ export function listTailnetAddresses(): TailnetAddresses {
   return { ipv4: [...new Set(ipv4)], ipv6: [...new Set(ipv6)] };
 }
 
-export function pickPrimaryTailnetIPv4(): string | undefined {
-  return listTailnetAddresses().ipv4[0];
+export function pickPrimaryTailnetIPv4(
+  getNetworkInterfaces?: NetworkInterfacesProvider,
+): string | undefined {
+  return listTailnetAddresses(getNetworkInterfaces).ipv4[0];
 }
 
-export function pickPrimaryTailnetIPv6(): string | undefined {
-  return listTailnetAddresses().ipv6[0];
+export function pickPrimaryTailnetIPv6(
+  getNetworkInterfaces?: NetworkInterfacesProvider,
+): string | undefined {
+  return listTailnetAddresses(getNetworkInterfaces).ipv6[0];
 }
