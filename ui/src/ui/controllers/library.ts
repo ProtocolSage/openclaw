@@ -1,11 +1,17 @@
-import { listSessions, deleteSession, saveSession, loadSession } from "../storage.ts";
+import type { SessionMetadata } from "../../lib/storage/storage-controller.ts";
 import type { OpenClawApp } from "../app.ts";
+import { listSessions, deleteSession, saveSession, loadSession } from "../storage.ts";
+
+type LibraryHost = OpenClawApp & {
+  librarySessions: SessionMetadata[];
+};
 
 export async function loadLibrarySessions(host: OpenClawApp) {
+  const libraryHost = host as LibraryHost;
   host.sessionsLoading = true; // Reusing existing session loading state for now or add host.libraryLoading
   try {
     const sessions = await listSessions();
-    host.librarySessions = sessions;
+    libraryHost.librarySessions = sessions;
   } catch (err) {
     console.error("Failed to load library sessions:", err);
     host.lastError = String(err);

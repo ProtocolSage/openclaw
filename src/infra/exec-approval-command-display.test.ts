@@ -30,6 +30,7 @@ describe("resolveExecApprovalCommandDisplay", () => {
         command: "",
         host: "node",
         systemRunPlan: {
+          version: 2,
           argv: ["python3", "-c", "print(1)"],
           cwd: null,
           commandText: 'python3 -c "print(1)"',
@@ -50,6 +51,7 @@ describe("resolveExecApprovalCommandDisplay", () => {
         command: "",
         host: "sandbox",
         systemRunPlan: {
+          version: 2,
           argv: ["echo", "hi"],
           cwd: null,
           commandText: "echo hi",

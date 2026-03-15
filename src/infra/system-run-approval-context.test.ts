@@ -80,6 +80,7 @@ describe("parsePreparedSystemRunPayload", () => {
       }),
     ).toEqual({
       plan: {
+        version: 2,
         argv: ["bash", "-lc", "jq --version"],
         cwd: "/tmp",
         commandText: 'bash -lc "jq --version"',
@@ -118,12 +119,14 @@ describe("resolveSystemRunApprovalRuntimeContext", () => {
     ).toEqual({
       ok: true,
       plan: {
+        version: 2,
         argv: ["jq", "--version"],
         cwd: "/tmp",
         commandText: "jq --version",
         commandPreview: "jq --version",
         agentId: "main",
         sessionKey: "agent:main:main",
+        mutableFileOperand: undefined,
       },
       argv: ["jq", "--version"],
       cwd: "/tmp",

@@ -243,6 +243,7 @@ describe("sanitizeSystemRunParamsForForwarding", () => {
   test("uses systemRunPlan for forwarded command context and ignores caller tampering", () => {
     const record = makeRecord("echo SAFE", ["echo", "SAFE"]);
     record.request.systemRunPlan = {
+      version: 2,
       argv: ["/usr/bin/echo", "SAFE"],
       cwd: "/real/cwd",
       commandText: "/usr/bin/echo SAFE",

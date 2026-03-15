@@ -1,5 +1,6 @@
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GeminiEmbeddingClient } from "./embeddings-gemini.js";
+import { mockPublicPinnedHostname } from "./test-helpers/ssrf.js";
 
 function magnitude(values: number[]) {
   return Math.sqrt(values.reduce((sum, value) => sum + value * value, 0));
@@ -15,6 +16,10 @@ describe("runGeminiEmbeddingBatches", () => {
   afterEach(() => {
     vi.resetAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  beforeEach(() => {
+    mockPublicPinnedHostname();
   });
 
   const mockClient: GeminiEmbeddingClient = {

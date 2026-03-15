@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as authModule from "../agents/model-auth.js";
 import {
   buildGeminiEmbeddingRequest,
@@ -9,6 +9,7 @@ import {
   isGeminiEmbedding2Model,
   resolveGeminiOutputDimensionality,
 } from "./embeddings-gemini.js";
+import { mockPublicPinnedHostname } from "./test-helpers/ssrf.js";
 
 vi.mock("../agents/model-auth.js", async () => {
   const { createModelAuthMockModule } = await import("../test-utils/model-auth-mock.js");
@@ -48,6 +49,10 @@ function magnitude(values: number[]) {
 afterEach(() => {
   vi.resetAllMocks();
   vi.unstubAllGlobals();
+});
+
+beforeEach(() => {
+  mockPublicPinnedHostname();
 });
 
 function mockResolvedProviderKey(apiKey = "test-key") {

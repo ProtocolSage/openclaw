@@ -119,6 +119,13 @@ function getMonolithicSdk() {
   return null;
 }
 
+function getLoadedMonolithicSdk() {
+  if (monolithicSdk && typeof monolithicSdk === "object") {
+    return monolithicSdk;
+  }
+  return null;
+}
+
 function getExportValue(prop) {
   if (Reflect.has(target, prop)) {
     return Reflect.get(target, prop);
@@ -169,7 +176,7 @@ rootExports = new Proxy(target, {
   },
   ownKeys() {
     const keys = new Set(Reflect.ownKeys(target));
-    const monolithic = getMonolithicSdk();
+    const monolithic = getLoadedMonolithicSdk();
     if (monolithic) {
       for (const key of Reflect.ownKeys(monolithic)) {
         if (!keys.has(key)) {

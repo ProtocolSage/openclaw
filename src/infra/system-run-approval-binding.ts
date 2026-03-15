@@ -56,6 +56,7 @@ export function normalizeSystemRunApprovalPlan(value: unknown): SystemRunApprova
     return null;
   }
   return {
+    version: 2,
     argv,
     cwd: normalizeNonEmptyString(candidate.cwd),
     commandText,

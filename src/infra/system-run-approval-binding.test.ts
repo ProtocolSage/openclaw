@@ -25,6 +25,7 @@ describe("normalizeSystemRunApprovalPlan", () => {
         },
       }),
     ).toEqual({
+      version: 2,
       argv: ["bash", "-lc", "echo hi"],
       commandText: 'bash -lc "echo hi"',
       commandPreview: "echo hi",
@@ -46,6 +47,7 @@ describe("normalizeSystemRunApprovalPlan", () => {
         rawCommand: 'bash -lc "echo hi"',
       }),
     ).toEqual({
+      version: 2,
       argv: ["bash", "-lc", "echo hi"],
       commandText: 'bash -lc "echo hi"',
       commandPreview: null,

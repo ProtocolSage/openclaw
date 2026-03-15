@@ -187,12 +187,14 @@ describe("nodes-cli coverage", () => {
     expect(invoke?.params?.timeoutMs).toBe(5000);
     const approval = getApprovalRequestCall();
     expect(approval?.params?.["systemRunPlan"]).toEqual({
+      version: 2,
       argv: ["echo", "hi"],
       cwd: "/tmp",
       commandText: "echo hi",
       commandPreview: null,
       agentId: "main",
       sessionKey: null,
+      mutableFileOperand: undefined,
     });
   });
 
@@ -221,12 +223,14 @@ describe("nodes-cli coverage", () => {
     });
     const approval = getApprovalRequestCall();
     expect(approval?.params?.["systemRunPlan"]).toEqual({
+      version: 2,
       argv: ["/bin/sh", "-lc", "echo hi"],
       cwd: null,
       commandText: '/bin/sh -lc "echo hi"',
       commandPreview: "echo hi",
       agentId: "main",
       sessionKey: null,
+      mutableFileOperand: undefined,
     });
   });
 

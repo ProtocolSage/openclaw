@@ -1313,7 +1313,7 @@ export async function collectInstalledSkillsCodeSafetyFindings(params: {
   return findings;
 }
 
-export async function collectWorkspaceSkillSymlinkEscapeFindings(params: {
+export async function collectWorkspaceSkillPathSymlinkFindings(params: {
   cfg: OpenClawConfig;
   stateDir: string;
 }): Promise<SecurityAuditFinding[]> {

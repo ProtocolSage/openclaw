@@ -71,6 +71,7 @@ export function parsePreparedSystemRunPayload(payload: unknown): PreparedRunPayl
   }
   return {
     plan: {
+      version: 2,
       argv,
       cwd: normalizeNonEmptyString(legacyPlan.cwd),
       commandText,

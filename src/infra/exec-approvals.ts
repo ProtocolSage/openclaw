@@ -49,7 +49,8 @@ export type SystemRunApprovalFileOperand = {
   sha256: string;
 };
 
-export type SystemRunApprovalPlan = {
+export type SystemRunApprovalPlanV2 = {
+  version: 2;
   argv: string[];
   cwd: string | null;
   commandText: string;

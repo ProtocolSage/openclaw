@@ -6,6 +6,7 @@ import { useFastShortTimeouts } from "../../test/helpers/fast-short-timeouts.js"
 import type { OpenClawConfig } from "../config/config.js";
 import { getMemorySearchManager, type MemoryIndexManager } from "./index.js";
 import { createOpenAIEmbeddingProviderMock } from "./test-embeddings-mock.js";
+import { mockPublicPinnedHostname } from "./test-helpers/ssrf.js";
 import "./test-runtime-mocks.js";
 
 const embedBatch = vi.fn(async (_texts: string[]) => [] as number[][]);
@@ -140,6 +141,7 @@ describe("memory indexing with OpenAI batches", () => {
   });
 
   beforeEach(async () => {
+    mockPublicPinnedHostname();
     embedBatch.mockClear();
     embedQuery.mockClear();
     embedBatch.mockImplementation(async (texts: string[]) =>

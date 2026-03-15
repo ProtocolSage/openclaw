@@ -5,6 +5,12 @@ const TOKEN_SESSION_KEY_PREFIX = "openclaw.control.token.v1:";
 type PersistedUiSettings = Omit<UiSettings, "token"> & { token?: never };
 
 import { isSupportedLocale } from "../i18n/index.ts";
+import {
+  StorageController,
+  type Message,
+  type ProjectState,
+  type SessionMetadata,
+} from "../lib/storage/storage-controller.ts";
 import { inferBasePathFromPathname, normalizeBasePath } from "./navigation.ts";
 import { parseThemeSelection, type ThemeMode, type ThemeName } from "./theme.ts";
 
@@ -23,6 +29,61 @@ export type UiSettings = {
   navGroupsCollapsed: Record<string, boolean>; // Which nav groups are collapsed
   locale?: string;
 };
+
+let storageController: StorageController | null = null;
+
+function getStorageController(): StorageController {
+  storageController ??= new StorageController();
+  return storageController;
+}
+
+export interface ExternalMessage {
+  id?: string;
+  role: "user" | "assistant" | "system" | "tool";
+  content: unknown;
+  timestamp?: number;
+  metadata?: Record<string, unknown>;
+}
+
+const EXTERNAL_MESSAGE_ROLES = new Set<ExternalMessage["role"]>([
+  "user",
+  "assistant",
+  "system",
+  "tool",
+]);
+
+function parseStoredMessageContent(content: string): unknown {
+  if (!content.startsWith("[") && !content.startsWith("{")) {
+    return content;
+  }
+  try {
+    return JSON.parse(content);
+  } catch {
+    return content;
+  }
+}
+
+export function toExternalMessage(message: Message): ExternalMessage {
+  return {
+    id: message.id,
+    role: message.role,
+    content: parseStoredMessageContent(message.content),
+    timestamp: message.createdAt,
+    metadata: message.metadata,
+  };
+}
+
+export function isExternalMessage(value: unknown): value is ExternalMessage {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.role === "string" &&
+    EXTERNAL_MESSAGE_ROLES.has(candidate.role as ExternalMessage["role"]) &&
+    "content" in candidate
+  );
+}
 
 function isViteDevPage(): boolean {
   if (typeof document === "undefined") {
@@ -202,6 +263,77 @@ export function loadSettings(): UiSettings {
 
 export function saveSettings(next: UiSettings) {
   persistSettings(next);
+}
+
+export async function persistSessionMessages(
+  sessionId: string,
+  messages: ExternalMessage[],
+): Promise<void> {
+  if (!sessionId) {
+    return;
+  }
+
+  const now = Date.now();
+  const internalMessages: Message[] = messages.map((message, index) => ({
+    id: message.id || `${sessionId}-${index}-${message.timestamp || now}`,
+    sessionId,
+    role: message.role,
+    content:
+      typeof message.content === "string" ? message.content : JSON.stringify(message.content),
+    createdAt: message.timestamp || now,
+    updatedAt: now,
+    metadata: message.metadata,
+  }));
+
+  const storage = getStorageController();
+  await storage.saveMessages(internalMessages);
+
+  const lastMessage = internalMessages.at(-1);
+  if (!lastMessage) {
+    return;
+  }
+
+  const existing = await storage.getSession(sessionId);
+  await storage.saveSession({
+    id: sessionId,
+    title: existing?.title || sessionId,
+    lastMessagePreview: lastMessage.content.slice(0, 100),
+    updatedAt: now,
+    createdAt: existing?.createdAt || now,
+  });
+}
+
+export async function loadSession(sessionId: string): Promise<SessionMetadata | null> {
+  return getStorageController().getSession(sessionId);
+}
+
+export async function saveSession(session: SessionMetadata): Promise<void> {
+  return getStorageController().saveSession(session);
+}
+
+export async function listSessions(): Promise<SessionMetadata[]> {
+  const sessions = await getStorageController().listSessions();
+  return [...sessions].toSorted((a, b) => b.updatedAt - a.updatedAt);
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  return getStorageController().deleteSession(sessionId);
+}
+
+export async function loadMessages(sessionId: string): Promise<Message[]> {
+  return getStorageController().getMessages(sessionId);
+}
+
+export async function saveMessages(messages: Message[]): Promise<void> {
+  return getStorageController().saveMessages(messages);
+}
+
+export async function loadProjectState(sessionId: string): Promise<ProjectState | null> {
+  return getStorageController().getProjectState(sessionId);
+}
+
+export async function saveProjectState(state: ProjectState): Promise<void> {
+  return getStorageController().saveProjectState(state);
 }
 
 function persistSettings(next: UiSettings) {

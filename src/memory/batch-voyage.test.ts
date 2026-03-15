@@ -1,7 +1,8 @@
 import { ReadableStream } from "node:stream/web";
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { VoyageBatchOutputLine, VoyageBatchRequest } from "./batch-voyage.js";
 import type { VoyageEmbeddingClient } from "./embeddings-voyage.js";
+import { mockPublicPinnedHostname } from "./test-helpers/ssrf.js";
 
 // Mock internal.js if needed, but runWithConcurrency is simple enough to keep real.
 // We DO need to mock retryAsync to avoid actual delays/retries logic complicating tests
@@ -19,6 +20,10 @@ describe("runVoyageEmbeddingBatches", () => {
   afterEach(() => {
     vi.resetAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  beforeEach(() => {
+    mockPublicPinnedHostname();
   });
 
   const mockClient: VoyageEmbeddingClient = {
