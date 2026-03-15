@@ -561,7 +561,7 @@ export function createExecTool(
             if (yielded || run.session.backgrounded) {
               return;
             }
-            if (outcome.status === "failed") {
+            if (outcome.status !== "completed") {
               reject(new Error(outcome.reason ?? "Command failed."));
               return;
             }

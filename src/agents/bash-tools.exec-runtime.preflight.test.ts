@@ -28,21 +28,29 @@ vi.mock("../infra/toolchain-preflight.js", async () => {
   };
 });
 
-function createManagedRun(exitCode = 0) {
+function createManagedRun(
+  params: {
+    exitCode?: number | null;
+    reason?: "exit" | "overall-timeout" | "no-output-timeout" | "signal" | "cancelled";
+    exitSignal?: NodeJS.Signals | null;
+    timedOut?: boolean;
+    noOutputTimedOut?: boolean;
+  } = {},
+) {
   return {
     runId: "run-supervisor",
     pid: 1234,
     startedAtMs: Date.now(),
     stdin: undefined,
     wait: vi.fn().mockResolvedValue({
-      reason: "exit" as const,
-      exitCode,
-      exitSignal: null,
+      reason: params.reason ?? ("exit" as const),
+      exitCode: params.exitCode ?? 0,
+      exitSignal: params.exitSignal ?? null,
       durationMs: 10,
       stdout: "",
       stderr: "",
-      timedOut: false,
-      noOutputTimedOut: false,
+      timedOut: params.timedOut ?? false,
+      noOutputTimedOut: params.noOutputTimedOut ?? false,
     }),
     cancel: vi.fn(),
   };
@@ -80,8 +88,9 @@ describe("runExecProcess toolchain preflight", () => {
 
     const result = await handle.promise;
     expect(supervisorSpawnMock).not.toHaveBeenCalled();
-    expect(result.status).toBe("failed");
+    expect(result.status).toBe("blocked-before-spawn");
     expect(result.reason).toBe("Blocked: required tool not found in PATH: pnpm");
+    expect(result.aggregated).toBe("Blocked: required tool not found in PATH: pnpm");
   });
 
   it("does not block non-tooling commands", async () => {
@@ -108,5 +117,65 @@ describe("runExecProcess toolchain preflight", () => {
     const result = await handle.promise;
     expect(supervisorSpawnMock).toHaveBeenCalledTimes(1);
     expect(result.status).toBe("completed");
+  });
+
+  it("classifies non-zero exits as failed during run", async () => {
+    preflightMock.mockReturnValue({
+      ok: true,
+      required: ["git"],
+      missing: [],
+      pathUsed: "/deterministic/bin:/ambient/bin",
+    });
+    supervisorSpawnMock.mockResolvedValueOnce(createManagedRun({ exitCode: 2 }));
+
+    const handle = await runExecProcess({
+      command: "git status --bad-flag",
+      workdir: process.cwd(),
+      env: { PATH: "/ambient/bin" },
+      usePty: false,
+      warnings: [],
+      maxOutput: 1_000,
+      pendingMaxOutput: 1_000,
+      notifyOnExit: false,
+      timeoutSec: null,
+    });
+
+    const result = await handle.promise;
+    expect(result.status).toBe("failed-during-run");
+    expect(result.timedOut).toBe(false);
+  });
+
+  it("classifies supervisor timeouts distinctly", async () => {
+    preflightMock.mockReturnValue({
+      ok: true,
+      required: ["pnpm", "node"],
+      missing: [],
+      pathUsed: "/deterministic/bin:/ambient/bin",
+    });
+    supervisorSpawnMock.mockResolvedValueOnce(
+      createManagedRun({
+        exitCode: null,
+        reason: "overall-timeout",
+        exitSignal: "SIGKILL",
+        timedOut: true,
+      }),
+    );
+
+    const handle = await runExecProcess({
+      command: "pnpm exec vitest",
+      workdir: process.cwd(),
+      env: { PATH: "/ambient/bin" },
+      usePty: false,
+      warnings: [],
+      maxOutput: 1_000,
+      pendingMaxOutput: 1_000,
+      notifyOnExit: false,
+      timeoutSec: 5,
+    });
+
+    const result = await handle.promise;
+    expect(result.status).toBe("timed-out");
+    expect(result.timedOut).toBe(true);
+    expect(result.reason).toContain("Command timed out after 5 seconds");
   });
 });

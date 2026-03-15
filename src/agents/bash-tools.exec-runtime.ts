@@ -144,8 +144,15 @@ export const execSchema = Type.Object({
   ),
 });
 
+export type ExecProcessOutcomeStatus =
+  | "blocked-before-spawn"
+  | "completed"
+  | "failed-during-run"
+  | "failed-during-verification"
+  | "timed-out";
+
 export type ExecProcessOutcome = {
-  status: "completed" | "failed";
+  status: ExecProcessOutcomeStatus;
   exitCode: number | null;
   exitSignal: NodeJS.Signals | number | null;
   durationMs: number;
@@ -161,6 +168,10 @@ export type ExecProcessHandle = {
   promise: Promise<ExecProcessOutcome>;
   kill: () => void;
 };
+
+function toProcessStatus(status: ExecProcessOutcomeStatus): "completed" | "failed" {
+  return status === "completed" ? "completed" : "failed";
+}
 
 export function renderExecHostLabel(host: ExecHost) {
   return host === "sandbox" ? "sandbox" : host === "gateway" ? "gateway" : "node";
@@ -373,7 +384,7 @@ export async function runExecProcess(opts: {
         );
       }
       const promise = Promise.resolve<ExecProcessOutcome>({
-        status: "failed",
+        status: "blocked-before-spawn",
         exitCode: null,
         exitSignal: null,
         durationMs: Date.now() - startedAt,
@@ -591,11 +602,16 @@ export async function runExecProcess(opts: {
       // unrecoverable infrastructure failures that should surface as real errors
       // rather than silently completing — e.g. `python: command not found`.
       const isShellFailure = exitCode === 126 || exitCode === 127;
-      const status: "completed" | "failed" =
-        isNormalExit && !isShellFailure ? "completed" : "failed";
+      const status: ExecProcessOutcomeStatus =
+        isNormalExit && exitCode === 0 && !isShellFailure
+          ? "completed"
+          : exit.reason === "overall-timeout" || exit.reason === "no-output-timeout"
+            ? "timed-out"
+            : "failed-during-run";
 
-      markExited(session, exit.exitCode, exit.exitSignal, status);
-      maybeNotifyOnExit(session, status);
+      const processStatus = toProcessStatus(status);
+      markExited(session, exit.exitCode, exit.exitSignal, processStatus);
+      maybeNotifyOnExit(session, processStatus);
       if (systemEventSessionKey) {
         enqueueSystemEvent(
           {
@@ -639,7 +655,7 @@ export async function runExecProcess(opts: {
               ? `Command aborted by signal ${exit.exitSignal}`
               : "Command aborted before exit code was captured";
       return {
-        status: "failed",
+        status,
         exitCode: exit.exitCode,
         exitSignal: exit.exitSignal,
         durationMs,
@@ -654,7 +670,7 @@ export async function runExecProcess(opts: {
       const aggregated = session.aggregated.trim();
       const message = aggregated ? `${aggregated}\n\n${String(err)}` : String(err);
       return {
-        status: "failed",
+        status: "failed-during-run",
         exitCode: null,
         exitSignal: null,
         durationMs: Date.now() - startedAt,
