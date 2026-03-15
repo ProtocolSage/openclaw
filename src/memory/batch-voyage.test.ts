@@ -40,6 +40,7 @@ describe("runVoyageEmbeddingBatches", () => {
   it("successfully submits batch, waits, and streams results", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
+    mockPublicPinnedHostname();
 
     // Sequence of fetch calls:
     // 1. Upload file
@@ -135,6 +136,7 @@ describe("runVoyageEmbeddingBatches", () => {
   it("handles empty lines and stream chunks correctly", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
+    mockPublicPinnedHostname();
 
     // 1. Upload
     fetchMock.mockResolvedValueOnce({ ok: true, json: async () => ({ id: "f1" }) });

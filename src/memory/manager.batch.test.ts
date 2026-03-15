@@ -176,6 +176,7 @@ describe("memory indexing with OpenAI batches", () => {
     const { fetchMock } = createOpenAIBatchFetchMock();
 
     vi.stubGlobal("fetch", fetchMock);
+    mockPublicPinnedHostname();
 
     try {
       if (!manager) {
@@ -218,6 +219,7 @@ describe("memory indexing with OpenAI batches", () => {
     });
 
     vi.stubGlobal("fetch", fetchMock);
+    mockPublicPinnedHostname();
 
     try {
       if (!manager) {
@@ -257,6 +259,7 @@ describe("memory indexing with OpenAI batches", () => {
     });
 
     vi.stubGlobal("fetch", fetchMock);
+    mockPublicPinnedHostname();
 
     try {
       if (!manager) {
