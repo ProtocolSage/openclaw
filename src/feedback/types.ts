@@ -4,7 +4,9 @@ export type SignalType =
   | "user_explicit"
   | "goal_abandoned"
   // tool_rejected: defined for future use when audit denial bridge is implemented (Second Wave).
-  | "tool_rejected";
+  | "tool_rejected"
+  | "verification_result"
+  | "verification_override";
 
 export interface FeedbackSignal {
   id: string;

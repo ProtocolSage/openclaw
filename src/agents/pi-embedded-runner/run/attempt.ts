@@ -1595,6 +1595,7 @@ export async function runEmbeddedAttempt(
           sendToSession,
           auditStore,
           feedbackStore,
+          verifierContext: params.verifierContext,
         });
     const toolsEnabled = supportsModelTools(params.model);
     const tools = sanitizeToolsForGoogle({

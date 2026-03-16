@@ -76,6 +76,8 @@ import {
   prepareSecretsRuntimeSnapshot,
   resolveCommandSecretsFromActiveRuntimeSnapshot,
 } from "../secrets/runtime.js";
+import { initializeVerifier } from "../verifier/gateway-wiring.js";
+import { handleVerifierCronEvent, registerVerifierCron } from "../verifier/periodic-scan.js";
 import { runOnboardingWizard } from "../wizard/onboarding.js";
 import { createAuthRateLimiter, type AuthRateLimiter } from "./auth-rate-limit.js";
 import { startChannelHealthMonitor } from "./channel-health-monitor.js";
@@ -510,6 +512,60 @@ export async function startGatewayServer(
       onWarning: (msg) => logCron.warn(msg),
     }).catch((err) => logCron.error(`initiative horizon scan failed: ${String(err)}`));
   };
+
+  // ── Trajectory verifier ──
+  const verifierCfg = cfgAtStart.verifier;
+  const verifier = initializeVerifier({
+    goalManager: {
+      async getActiveGoals() {
+        return goalManager.listGoals(defaultAgentId, "active").map((g) => ({
+          id: g.id,
+          title: g.title,
+          status: g.status as string,
+          deadlineMs: g.deadlineMs ?? undefined,
+          priority: String(g.priority),
+        }));
+      },
+      async getTasksForGoal(goalId: string) {
+        return goalManager.listTasks({ goalId }).map((t) => ({
+          title: t.title,
+          status: t.status as string,
+          lastUpdatedAt: t.completedAt ?? t.createdAt,
+        }));
+      },
+    },
+    auditStore: {
+      async getRecentEntries(_goalId, _opts) {
+        // Periodic scan opens per-scan DB handles; inline gate uses per-session stores.
+        // Gateway-level periodic scan audit access not yet wired — returns empty for now.
+        return [];
+      },
+    },
+    feedbackStore: {
+      async getRecentSignals() {
+        return [];
+      },
+      async getOverrideStats() {
+        return { confirmed: 0, overridden: 0 };
+      },
+    },
+    // Cron service not yet created; verifier cron registered after cronState is built below.
+    sendToSession: (msg, _level) => {
+      enqueueSystemEvent(msg, { sessionKey: resolveMainSessionKey(cfgAtStart) });
+      requestHeartbeatNow({ reason: "verifier", sessionKey: resolveMainSessionKey(cfgAtStart) });
+    },
+    callModel: async (_modelRef, _messages, _params) => {
+      // Model call transport will be wired when provider adapter supports standalone calls.
+      return {
+        content:
+          '{"schemaVersion":1,"aligned":"unclear","confidence":0.3,"reason":"Model transport not yet wired","severity":"low"}',
+      };
+    },
+    userConfig: verifierCfg
+      ? { ...verifierCfg, enabled: verifierCfg.enabled ?? false }
+      : { enabled: false },
+  });
+
   const baseMethods = listGatewayMethods();
   const emptyPluginRegistry = createEmptyPluginRegistry();
   const { pluginRegistry, gatewayMethods: baseGatewayMethods } = minimalTestGateway
@@ -696,9 +752,17 @@ export async function startGatewayServer(
     cfg: cfgAtStart,
     deps,
     broadcast,
-    onEvent: (evt) => onInitiativeCronEvent(evt, loadConfig()),
+    onEvent: (evt) => {
+      onInitiativeCronEvent(evt, loadConfig());
+      void handleVerifierCronEvent(evt, verifier.context).catch((err) =>
+        logCron.error(`verifier periodic scan failed: ${String(err)}`),
+      );
+    },
   });
   let { cron, storePath: cronStorePath } = cronState;
+
+  // Deferred verifier cron registration (cron service now available).
+  void registerVerifierCron(cron, verifier.context.config);
 
   const { getRuntimeSnapshot, startChannels, startChannel, stopChannel, markChannelLoggedOut } =
     channelManager;
@@ -1009,7 +1073,12 @@ export async function startGatewayServer(
         const { applyHotReload, requestGatewayRestart } = createGatewayReloadHandlers({
           deps,
           broadcast,
-          onCronEvent: (evt) => onInitiativeCronEvent(evt, loadConfig()),
+          onCronEvent: (evt) => {
+            onInitiativeCronEvent(evt, loadConfig());
+            void handleVerifierCronEvent(evt, verifier.context).catch((err) =>
+              logCron.error(`verifier periodic scan failed: ${String(err)}`),
+            );
+          },
           getState: () => ({
             hooksConfig,
             hookClientIpConfig,

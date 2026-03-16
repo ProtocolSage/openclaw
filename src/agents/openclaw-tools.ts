@@ -6,6 +6,7 @@ import { createDefaultEnvironmentWatcher, type EnvironmentWatcher } from "../ini
 import { resolvePluginTools } from "../plugins/tools.js";
 import { getActiveRuntimeWebToolsMetadata } from "../secrets/runtime.js";
 import type { GatewayMessageChannel } from "../utils/message-channel.js";
+import type { VerifierContext } from "../verifier/types.js";
 import { resolveSessionAgentId } from "./agent-scope.js";
 import type { SendToSessionFn } from "./coordination/aggregator.js";
 import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
@@ -96,6 +97,8 @@ export function createOpenClawTools(
     watcher?: EnvironmentWatcher;
     auditStore?: AuditStore;
     feedbackStore?: FeedbackStore;
+    /** Trajectory verifier context for inline gate wrapping. */
+    verifierContext?: VerifierContext;
   } & SpawnedToolContext,
 ): AnyAgentTool[] {
   const workspaceDir = resolveWorkspaceRoot(options?.workspaceDir);

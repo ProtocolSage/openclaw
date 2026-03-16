@@ -9,6 +9,8 @@ import { logWarn } from "../logger.js";
 import { getPluginToolMeta } from "../plugins/tools.js";
 import { isSubagentSessionKey } from "../routing/session-key.js";
 import { resolveGatewayMessageChannel } from "../utils/message-channel.js";
+import { wrapToolWithInlineGate } from "../verifier/inline-gate.js";
+import type { VerifierContext } from "../verifier/types.js";
 import { resolveAgentConfig } from "./agent-scope.js";
 import { createApplyPatchTool } from "./apply-patch.js";
 import {
@@ -281,6 +283,8 @@ export function createOpenClawCodingTools(options?: {
   auditStore?: AuditStore;
   /** Append-only feedback store for signals and corrections. */
   feedbackStore?: FeedbackStore;
+  /** Trajectory verifier context for inline gate wrapping. */
+  verifierContext?: VerifierContext;
 }): AnyAgentTool[] {
   const execToolName = "exec";
   const sandbox = options?.sandbox?.enabled ? options.sandbox : undefined;
@@ -632,9 +636,14 @@ export function createOpenClawCodingTools(options?: {
         }),
       )
     : withHooks;
-  const withAbort = options?.abortSignal
-    ? withAudit.map((tool) => wrapToolWithAbortSignal(tool, options.abortSignal))
+  const withGate = options?.verifierContext
+    ? withAudit.map((tool) =>
+        wrapToolWithInlineGate(tool, options.verifierContext as VerifierContext),
+      )
     : withAudit;
+  const withAbort = options?.abortSignal
+    ? withGate.map((tool) => wrapToolWithAbortSignal(tool, options.abortSignal))
+    : withGate;
 
   // NOTE: Keep canonical (lowercase) tool names here.
   // pi-ai's Anthropic OAuth transport remaps tool names to Claude Code-style names
