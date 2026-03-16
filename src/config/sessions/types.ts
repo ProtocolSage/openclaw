@@ -86,6 +86,8 @@ export type SessionEntry = {
   spawnDepth?: number;
   /** Explicit role assigned at spawn time for subagent tool policy/control decisions. */
   subagentRole?: "orchestrator" | "leaf";
+  /** Optional specialization role id used for child tool filtering/persona. */
+  agentRoleId?: string;
   /** Explicit control scope assigned at spawn time for subagent control decisions. */
   subagentControlScope?: "children" | "none";
   systemSent?: boolean;

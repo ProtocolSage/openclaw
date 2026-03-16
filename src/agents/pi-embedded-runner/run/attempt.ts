@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import os from "node:os";
+import path from "node:path";
 import type { AgentMessage, StreamFn } from "@mariozechner/pi-agent-core";
 import { streamSimple } from "@mariozechner/pi-ai";
 import {
@@ -10,14 +11,29 @@ import {
 import { resolveSignalReactionLevel } from "../../../../extensions/signal/src/reaction-level.js";
 import { resolveTelegramInlineButtonsScope } from "../../../../extensions/telegram/src/inline-buttons.js";
 import { resolveTelegramReactionLevel } from "../../../../extensions/telegram/src/reaction-level.js";
+import { auditCitationMiss } from "../../../agents/grounding/citation-audit.js";
+import { GROUNDING_POLICY } from "../../../agents/grounding/policy.js";
+import { AuditStore } from "../../../audit/store.js";
 import { resolveHeartbeatPrompt } from "../../../auto-reply/heartbeat.js";
 import { resolveChannelCapabilities } from "../../../config/channel-capabilities.js";
 import type { OpenClawConfig } from "../../../config/config.js";
+import {
+  createProposedCorrection,
+  deriveCorrectionRuleText,
+  detectCorrection,
+} from "../../../feedback/correction.js";
+import { emitUserCorrection } from "../../../feedback/signals.js";
+import { FeedbackStore } from "../../../feedback/store.js";
+import { callGateway } from "../../../gateway/call.js";
+import { GoalManager } from "../../../goals/manager.js";
+import { buildActiveGoalsPromptSummary } from "../../../goals/prompt-summary.js";
+import { GoalStore } from "../../../goals/store.js";
 import { getMachineDisplayName } from "../../../infra/machine-name.js";
 import {
   ensureGlobalUndiciEnvProxyDispatcher,
   ensureGlobalUndiciStreamTimeouts,
 } from "../../../infra/net/undici-global-dispatcher.js";
+import { generateSecureToken } from "../../../infra/secure-random.js";
 import { MAX_IMAGE_BYTES } from "../../../media/constants.js";
 import { getGlobalHookRunner } from "../../../plugins/hook-runner-global.js";
 import type {
@@ -30,6 +46,7 @@ import { joinPresentTextSegments } from "../../../shared/text/join-segments.js";
 import { buildTtsSystemPromptHint } from "../../../tts/tts.js";
 import { resolveUserPath } from "../../../utils.js";
 import { normalizeMessageChannel } from "../../../utils/message-channel.js";
+import { INTERNAL_MESSAGE_CHANNEL } from "../../../utils/message-channel.js";
 import { isReasoningTagProvider } from "../../../utils/provider-utils.js";
 import { resolveOpenClawAgentDir } from "../../agent-paths.js";
 import { resolveSessionAgentIds } from "../../agent-scope.js";
@@ -51,6 +68,7 @@ import { DEFAULT_CONTEXT_TOKENS } from "../../defaults.js";
 import { resolveOpenClawDocsPath } from "../../docs-path.js";
 import { isTimeoutError } from "../../failover-error.js";
 import { resolveImageSanitizationLimits } from "../../image-sanitization.js";
+import { AGENT_LANE_NESTED } from "../../lanes.js";
 import { resolveModelAuthMode } from "../../model-auth.js";
 import { normalizeProviderId, resolveDefaultModelForAgent } from "../../model-selection.js";
 import { supportsModelTools } from "../../model-tool-support.js";
@@ -67,6 +85,7 @@ import {
   validateGeminiTurns,
 } from "../../pi-embedded-helpers.js";
 import { subscribeEmbeddedPiSession } from "../../pi-embedded-subscribe.js";
+import { extractAssistantText, isAssistantMessage } from "../../pi-embedded-utils.js";
 import { createPreparedEmbeddedPiSettingsManager } from "../../pi-project-settings.js";
 import { applyPiAutoCompactionGuard } from "../../pi-settings.js";
 import { toClientToolDefinitions } from "../../pi-tool-definition-adapter.js";
@@ -1484,9 +1503,44 @@ export async function runEmbeddedAttempt(
     let yieldAbortSettled: Promise<void> | null = null;
     // Check if the model supports native image input
     const modelHasVision = params.model.input?.includes("image") ?? false;
+    // Initialize goals store + manager for goal/task tracking tools.
+    // Each store opens its own connection per-turn; the gateway also holds a long-lived
+    // GoalStore for the horizon scanner. SQLite WAL + busy_timeout=5000 serializes writes.
+    const goalStore = new GoalStore();
+    goalStore.open(path.join(agentDir, "goals.db"));
+    const goalManager = new GoalManager(goalStore);
+    const feedbackStore = new FeedbackStore();
+    feedbackStore.open(path.join(agentDir, "feedback.db"));
+    const auditStore = new AuditStore();
+    auditStore.open(path.join(agentDir, "audit.db"));
+    const turnId = `turn-${Date.now().toString(36)}-${generateSecureToken(4)}`;
+    const activeGoalsPromptSummary = buildActiveGoalsPromptSummary({
+      goalManager,
+      agentId: sessionAgentId,
+    });
+    const sendToSession = async (sessionKey: string, message: string) => {
+      await callGateway({
+        method: "agent",
+        params: {
+          message,
+          sessionKey,
+          deliver: false,
+          channel: INTERNAL_MESSAGE_CHANNEL,
+          lane: AGENT_LANE_NESTED,
+          inputProvenance: {
+            kind: "inter_session",
+            sourceSessionKey: params.sessionKey,
+            sourceChannel: params.messageChannel ?? params.messageProvider,
+            sourceTool: "tasks",
+          },
+        },
+        timeoutMs: 10_000,
+      });
+    };
     const toolsRaw = params.disableTools
       ? []
       : createOpenClawCodingTools({
+          goalManager,
           agentId: sessionAgentId,
           exec: {
             ...params.execOverrides,
@@ -1509,6 +1563,7 @@ export async function runEmbeddedAttempt(
           sessionKey: sandboxSessionKey,
           sessionId: params.sessionId,
           runId: params.runId,
+          turnId,
           agentDir,
           workspaceDir: effectiveWorkspace,
           // When sandboxing uses a copied workspace (`ro` or `none`), effectiveWorkspace points
@@ -1537,6 +1592,9 @@ export async function runEmbeddedAttempt(
             runAbortController.abort("sessions_yield");
             abortSessionForYield?.();
           },
+          sendToSession,
+          auditStore,
+          feedbackStore,
         });
     const toolsEnabled = supportsModelTools(params.model);
     const tools = sanitizeToolsForGoogle({
@@ -1647,12 +1705,17 @@ export async function runEmbeddedAttempt(
     });
     const ttsHint = params.config ? buildTtsSystemPromptHint(params.config) : undefined;
     const ownerDisplay = resolveOwnerDisplaySetting(params.config);
+    const extraSystemPrompt = joinPresentTextSegments([
+      activeGoalsPromptSummary,
+      GROUNDING_POLICY,
+      params.extraSystemPrompt,
+    ]);
 
     const appendPrompt = buildEmbeddedSystemPrompt({
       workspaceDir: effectiveWorkspace,
       defaultThinkLevel: params.thinkLevel,
       reasoningLevel: params.reasoningLevel ?? "off",
-      extraSystemPrompt: params.extraSystemPrompt,
+      extraSystemPrompt,
       ownerNumbers: params.ownerNumbers,
       ownerDisplay: ownerDisplay.ownerDisplay,
       ownerDisplaySecret: ownerDisplay.ownerDisplaySecret,
@@ -2351,6 +2414,35 @@ export async function runEmbeddedAttempt(
 
       // Hook runner was already obtained earlier before tool creation
       const hookAgentId = sessionAgentId;
+      const priorAssistant = activeSession.messages.slice().toReversed().find(isAssistantMessage);
+      const priorAssistantText = priorAssistant ? extractAssistantText(priorAssistant) : "";
+      if (detectCorrection(params.prompt)) {
+        const correctionSignalId = emitUserCorrection({
+          feedbackStore,
+          agentId: sessionAgentId,
+          sessionKey: params.sessionKey ?? "unknown",
+          correctionText: params.prompt,
+          originalAssistantText: priorAssistantText,
+          turnId,
+        });
+        if (correctionSignalId) {
+          // Extract correction rule synchronously via regex (non-blocking, best-effort).
+          // TODO(second-wave): replace with real LLM call via extractProposedRule() once
+          // model access is available in this pre-prompt context.
+          try {
+            const ruleText = deriveCorrectionRuleText(params.prompt);
+            if (ruleText) {
+              feedbackStore.insertCorrection(
+                createProposedCorrection({
+                  signalId: correctionSignalId,
+                  ruleText,
+                  sourceText: params.prompt,
+                }),
+              );
+            }
+          } catch {}
+        }
+      }
 
       let promptError: unknown = null;
       let promptErrorSource: "prompt" | "compaction" | null = null;
@@ -2792,6 +2884,18 @@ export async function runEmbeddedAttempt(
             typeof entry.toolName === "string" && entry.toolName.trim().length > 0,
         )
         .map((entry) => ({ toolName: entry.toolName, meta: entry.meta }));
+      const toolNamesCalledThisTurn = toolMetasNormalized.map((entry) => entry.toolName);
+      const assistantTextForAudit = assistantTexts.join("\n\n");
+      if (
+        auditCitationMiss({
+          assistantText: assistantTextForAudit,
+          toolNamesCalled: toolNamesCalledThisTurn,
+        })
+      ) {
+        log.warn(
+          `grounding: possible citation miss runId=${params.runId} sessionId=${params.sessionId}`,
+        );
+      }
 
       if (hookRunner?.hasHooks("llm_output")) {
         hookRunner
@@ -2863,6 +2967,15 @@ export async function runEmbeddedAttempt(
         sessionManager,
         clearPendingOnTimeout: true,
       });
+      try {
+        goalStore.close();
+      } catch {}
+      try {
+        feedbackStore.close();
+      } catch {}
+      try {
+        auditStore.close();
+      } catch {}
       session?.dispose();
       releaseWsSession(params.sessionId);
       await sessionLock.release();

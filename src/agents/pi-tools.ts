@@ -1,6 +1,9 @@
 import { codingTools, createReadTool, readTool } from "@mariozechner/pi-coding-agent";
+import { wrapToolWithDecisionLog } from "../audit/decision-log.js";
+import type { AuditStore } from "../audit/store.js";
 import type { OpenClawConfig } from "../config/config.js";
 import type { ToolLoopDetectionConfig } from "../config/types.tools.js";
+import type { FeedbackStore } from "../feedback/store.js";
 import { resolveMergedSafeBinProfileFixtures } from "../infra/exec-safe-bin-runtime-policy.js";
 import { logWarn } from "../logger.js";
 import { getPluginToolMeta } from "../plugins/tools.js";
@@ -197,6 +200,7 @@ export const __testing = {
 
 export function createOpenClawCodingTools(options?: {
   agentId?: string;
+  goalManager?: import("../goals/manager.js").GoalManager;
   exec?: ExecToolDefaults & ProcessToolDefaults;
   messageProvider?: string;
   agentAccountId?: string;
@@ -208,6 +212,8 @@ export function createOpenClawCodingTools(options?: {
   sessionId?: string;
   /** Stable run identifier for this agent invocation. */
   runId?: string;
+  /** Stable tool-audit turn id for this specific model turn. */
+  turnId?: string;
   /** What initiated this run (for trigger-specific tool restrictions). */
   trigger?: string;
   /** Relative workspace path that memory-triggered writes may append to. */
@@ -269,6 +275,12 @@ export function createOpenClawCodingTools(options?: {
   senderIsOwner?: boolean;
   /** Callback invoked when sessions_yield tool is called. */
   onYield?: (message: string) => Promise<void> | void;
+  /** Callback used for internal inter-session notifications. */
+  sendToSession?: import("./coordination/aggregator.js").SendToSessionFn;
+  /** Append-only audit store for decision logging. */
+  auditStore?: AuditStore;
+  /** Append-only feedback store for signals and corrections. */
+  feedbackStore?: FeedbackStore;
 }): AnyAgentTool[] {
   const execToolName = "exec";
   const sandbox = options?.sandbox?.enabled ? options.sandbox : undefined;
@@ -489,6 +501,7 @@ export function createOpenClawCodingTools(options?: {
     // Channel docking: include channel-defined agent tools (login, etc.).
     ...listChannelAgentTools({ cfg: options?.config }),
     ...createOpenClawTools({
+      goalManager: options?.goalManager,
       sandboxBrowserBridgeUrl: sandbox?.browser?.bridgeUrl,
       allowHostBrowserControl: sandbox ? sandbox.browserAllowHostControl : true,
       agentSessionKey: options?.sessionKey,
@@ -532,7 +545,10 @@ export function createOpenClawCodingTools(options?: {
       requesterSenderId: options?.senderId,
       senderIsOwner: options?.senderIsOwner,
       sessionId: options?.sessionId,
+      auditStore: options?.auditStore,
+      feedbackStore: options?.feedbackStore,
       onYield: options?.onYield,
+      sendToSession: options?.sendToSession,
     }),
   ];
   const toolsForMemoryFlush =
@@ -607,9 +623,18 @@ export function createOpenClawCodingTools(options?: {
       loopDetection: resolveToolLoopDetectionConfig({ cfg: options?.config, agentId }),
     }),
   );
-  const withAbort = options?.abortSignal
-    ? withHooks.map((tool) => wrapToolWithAbortSignal(tool, options.abortSignal))
+  const withAudit = options?.auditStore
+    ? withHooks.map((tool) =>
+        wrapToolWithDecisionLog(tool, options.auditStore as AuditStore, {
+          agentId: agentId ?? "default",
+          sessionKey: options?.sessionKey ?? "unknown",
+          turnId: options?.turnId ?? "unknown",
+        }),
+      )
     : withHooks;
+  const withAbort = options?.abortSignal
+    ? withAudit.map((tool) => wrapToolWithAbortSignal(tool, options.abortSignal))
+    : withAudit;
 
   // NOTE: Keep canonical (lowercase) tool names here.
   // pi-ai's Anthropic OAuth transport remaps tool names to Claude Code-style names

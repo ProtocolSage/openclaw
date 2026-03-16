@@ -37,6 +37,7 @@ type GatewayHotReloadState = {
 export function createGatewayReloadHandlers(params: {
   deps: CliDeps;
   broadcast: (event: string, payload: unknown, opts?: { dropIfSlow?: boolean }) => void;
+  onCronEvent?: (evt: import("../cron/service.js").CronEvent) => void;
   getState: () => GatewayHotReloadState;
   setState: (state: GatewayHotReloadState) => void;
   startChannel: (name: ChannelKind) => Promise<void>;
@@ -85,6 +86,7 @@ export function createGatewayReloadHandlers(params: {
         cfg: nextConfig,
         deps: params.deps,
         broadcast: params.broadcast,
+        onEvent: params.onCronEvent,
       });
       void nextState.cronState.cron
         .start()

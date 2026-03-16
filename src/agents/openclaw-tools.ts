@@ -1,17 +1,25 @@
+import type { AuditStore } from "../audit/store.js";
 import type { OpenClawConfig } from "../config/config.js";
+import type { FeedbackStore } from "../feedback/store.js";
+import type { GoalManager } from "../goals/manager.js";
+import { createDefaultEnvironmentWatcher, type EnvironmentWatcher } from "../initiative/index.js";
 import { resolvePluginTools } from "../plugins/tools.js";
 import { getActiveRuntimeWebToolsMetadata } from "../secrets/runtime.js";
 import type { GatewayMessageChannel } from "../utils/message-channel.js";
 import { resolveSessionAgentId } from "./agent-scope.js";
+import type { SendToSessionFn } from "./coordination/aggregator.js";
 import type { SandboxFsBridge } from "./sandbox/fs-bridge.js";
 import type { SpawnedToolContext } from "./spawned-context.js";
 import type { ToolFsPolicy } from "./tool-fs-policy.js";
 import { createAgentsListTool } from "./tools/agents-list-tool.js";
+import { createAuditTool } from "./tools/audit-tool.js";
 import { createBrowserTool } from "./tools/browser-tool.js";
 import { createCanvasTool } from "./tools/canvas-tool.js";
 import type { AnyAgentTool } from "./tools/common.js";
 import { createCronTool } from "./tools/cron-tool.js";
+import { createFeedbackTool } from "./tools/feedback-tool.js";
 import { createGatewayTool } from "./tools/gateway-tool.js";
+import { createGoalsTool } from "./tools/goals-tool.js";
 import { createImageTool } from "./tools/image-tool.js";
 import { createMessageTool } from "./tools/message-tool.js";
 import { createNodesTool } from "./tools/nodes-tool.js";
@@ -23,12 +31,15 @@ import { createSessionsSendTool } from "./tools/sessions-send-tool.js";
 import { createSessionsSpawnTool } from "./tools/sessions-spawn-tool.js";
 import { createSessionsYieldTool } from "./tools/sessions-yield-tool.js";
 import { createSubagentsTool } from "./tools/subagents-tool.js";
+import { createTasksTool } from "./tools/tasks-tool.js";
 import { createTtsTool } from "./tools/tts-tool.js";
+import { createWatchTool } from "./tools/watch-tool.js";
 import { createWebFetchTool, createWebSearchTool } from "./tools/web-tools.js";
 import { resolveWorkspaceRoot } from "./workspace-dir.js";
 
 export function createOpenClawTools(
   options?: {
+    goalManager?: GoalManager;
     sandboxBrowserBridgeUrl?: string;
     allowHostBrowserControl?: boolean;
     agentSessionKey?: string;
@@ -80,6 +91,11 @@ export function createOpenClawTools(
     spawnWorkspaceDir?: string;
     /** Callback invoked when sessions_yield tool is called. */
     onYield?: (message: string) => Promise<void> | void;
+    /** Callback used for internal inter-session notifications. */
+    sendToSession?: SendToSessionFn;
+    watcher?: EnvironmentWatcher;
+    auditStore?: AuditStore;
+    feedbackStore?: FeedbackStore;
   } & SpawnedToolContext,
 ): AnyAgentTool[] {
   const workspaceDir = resolveWorkspaceRoot(options?.workspaceDir);
@@ -136,6 +152,21 @@ export function createOpenClawTools(
         requireExplicitTarget: options?.requireExplicitMessageTarget,
         requesterSenderId: options?.requesterSenderId ?? undefined,
       });
+  const sessionsSpawnTool = createSessionsSpawnTool({
+    goalManager: options?.goalManager,
+    agentSessionKey: options?.agentSessionKey,
+    agentChannel: options?.agentChannel,
+    agentAccountId: options?.agentAccountId,
+    agentTo: options?.agentTo,
+    agentThreadId: options?.agentThreadId,
+    agentGroupId: options?.agentGroupId,
+    agentGroupChannel: options?.agentGroupChannel,
+    agentGroupSpace: options?.agentGroupSpace,
+    sandboxed: options?.sandboxed,
+    requesterAgentIdOverride: options?.requesterAgentIdOverride,
+    workspaceDir: spawnWorkspaceDir,
+  });
+  const watcher = options?.watcher ?? createDefaultEnvironmentWatcher();
   const tools: AnyAgentTool[] = [
     createBrowserTool({
       sandboxBridgeUrl: options?.sandboxBrowserBridgeUrl,
@@ -156,6 +187,10 @@ export function createOpenClawTools(
     createCronTool({
       agentSessionKey: options?.agentSessionKey,
     }),
+    createWatchTool({
+      watcher,
+      workspaceDir,
+    }),
     ...(messageTool ? [messageTool] : []),
     createTtsTool({
       agentChannel: options?.agentChannel,
@@ -169,6 +204,17 @@ export function createOpenClawTools(
       agentSessionKey: options?.agentSessionKey,
       requesterAgentIdOverride: options?.requesterAgentIdOverride,
     }),
+    ...(options?.auditStore ? [createAuditTool({ auditStore: options.auditStore })] : []),
+    ...(options?.feedbackStore && options?.agentDir
+      ? [
+          createFeedbackTool({
+            feedbackStore: options.feedbackStore,
+            agentId: options.requesterAgentIdOverride ?? "default",
+            sessionKey: options.agentSessionKey ?? "unknown",
+            agentDir: options.agentDir,
+          }),
+        ]
+      : []),
     createSessionsListTool({
       agentSessionKey: options?.agentSessionKey,
       sandboxed: options?.sandboxed,
@@ -189,19 +235,7 @@ export function createOpenClawTools(
       sessionId: options?.sessionId,
       onYield: options?.onYield,
     }),
-    createSessionsSpawnTool({
-      agentSessionKey: options?.agentSessionKey,
-      agentChannel: options?.agentChannel,
-      agentAccountId: options?.agentAccountId,
-      agentTo: options?.agentTo,
-      agentThreadId: options?.agentThreadId,
-      agentGroupId: options?.agentGroupId,
-      agentGroupChannel: options?.agentGroupChannel,
-      agentGroupSpace: options?.agentGroupSpace,
-      sandboxed: options?.sandboxed,
-      requesterAgentIdOverride: options?.requesterAgentIdOverride,
-      workspaceDir: spawnWorkspaceDir,
-    }),
+    sessionsSpawnTool,
     createSubagentsTool({
       agentSessionKey: options?.agentSessionKey,
     }),
@@ -214,6 +248,37 @@ export function createOpenClawTools(
     ...(webFetchTool ? [webFetchTool] : []),
     ...(imageTool ? [imageTool] : []),
     ...(pdfTool ? [pdfTool] : []),
+    ...(options?.goalManager
+      ? [
+          createGoalsTool({
+            goalManager: options.goalManager,
+            feedbackStore: options.feedbackStore,
+            agentId: options.requesterAgentIdOverride,
+            sessionKey: options.agentSessionKey,
+          }),
+          createTasksTool({
+            goalManager: options.goalManager,
+            feedbackStore: options.feedbackStore,
+            agentId: options.requesterAgentIdOverride,
+            sessionKey: options.agentSessionKey,
+            sendToSession: options.sendToSession,
+            spawnTaskSession: async (params) => {
+              const result = await sessionsSpawnTool.execute(`tasks-delegate-${params.taskId}`, {
+                task: params.task,
+                taskId: params.taskId,
+                roleId: params.roleId,
+                runtime: params.runtime,
+                agentId: params.agentId,
+                model: params.model,
+                thinking: params.thinking,
+                runTimeoutSeconds: params.runTimeoutSeconds,
+                sandbox: params.sandbox,
+              });
+              return result.details as Record<string, unknown>;
+            },
+          }),
+        ]
+      : []),
   ];
 
   const pluginTools = resolvePluginTools({

@@ -9,9 +9,11 @@ import { normalizeMessageChannel } from "../utils/message-channel.js";
 import { resolveAgentConfig, resolveAgentIdFromSessionKey } from "./agent-scope.js";
 import { compileGlobPatterns, matchesAnyGlobPattern } from "./glob-pattern.js";
 import type { AnyAgentTool } from "./pi-tools.types.js";
+import { resolveAgentRoleConfig } from "./roles/resolver.js";
 import { pickSandboxToolPolicy } from "./sandbox-tool-policy.js";
 import type { SandboxToolPolicy } from "./sandbox.js";
 import {
+  resolveStoredAgentRoleId,
   resolveStoredSubagentCapabilities,
   type SubagentSessionRole,
 } from "./subagent-capabilities.js";
@@ -137,7 +139,13 @@ export function resolveSubagentToolPolicyForSession(
     ...(Array.isArray(configured?.deny) ? configured.deny : []),
   ];
   const mergedAllow = allow && alsoAllow ? Array.from(new Set([...allow, ...alsoAllow])) : allow;
-  return { allow: mergedAllow, deny };
+  const specializationRoleId = resolveStoredAgentRoleId(sessionKey, { cfg });
+  const specializationRole =
+    specializationRoleId && cfg ? resolveAgentRoleConfig(specializationRoleId, cfg) : undefined;
+  const roleDeny = Array.isArray(specializationRole?.toolPolicy?.deny)
+    ? specializationRole.toolPolicy.deny
+    : [];
+  return { allow: mergedAllow, deny: [...deny, ...roleDeny] };
 }
 
 export function isToolAllowedByPolicyName(name: string, policy?: SandboxToolPolicy): boolean {

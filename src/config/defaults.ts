@@ -210,6 +210,26 @@ export function applyTalkConfigNormalization(config: OpenClawConfig): OpenClawCo
   return normalizeTalkConfig(config);
 }
 
+export function applyInitiativeDefaults(cfg: OpenClawConfig): OpenClawConfig {
+  const initiative = cfg.initiative ?? {};
+  const nudgePolicy = initiative.nudgePolicy ?? {};
+
+  return {
+    ...cfg,
+    initiative: {
+      enabled: initiative.enabled ?? true,
+      horizonScanIntervalMins: initiative.horizonScanIntervalMins ?? 15,
+      nudgePolicy: {
+        maxNudgesPerHour: nudgePolicy.maxNudgesPerHour ?? 2,
+        quietHoursStart: nudgePolicy.quietHoursStart ?? 22,
+        quietHoursEnd: nudgePolicy.quietHoursEnd ?? 8,
+        deduplicateWindowMs: nudgePolicy.deduplicateWindowMs ?? 7_200_000,
+        activeChannelWindowHours: nudgePolicy.activeChannelWindowHours ?? 4,
+      },
+    },
+  };
+}
+
 export function applyModelDefaults(cfg: OpenClawConfig): OpenClawConfig {
   let mutated = false;
   let nextCfg = cfg;

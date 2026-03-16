@@ -14,6 +14,7 @@ type SessionCapabilityEntry = {
   sessionId?: unknown;
   spawnDepth?: unknown;
   subagentRole?: unknown;
+  agentRoleId?: unknown;
   subagentControlScope?: unknown;
 };
 
@@ -39,6 +40,14 @@ function normalizeSubagentControlScope(value: unknown): SubagentControlScope | u
   }
   const trimmed = value.trim().toLowerCase();
   return SUBAGENT_CONTROL_SCOPES.find((entry) => entry === trimmed);
+}
+
+function normalizeAgentRoleId(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim().toLowerCase();
+  return trimmed || undefined;
 }
 
 function readSessionStore(storePath: string): Record<string, SessionCapabilityEntry> {
@@ -153,4 +162,23 @@ export function resolveStoredSubagentCapabilities(
     canSpawn: role === "main" || role === "orchestrator",
     canControlChildren: controlScope === "children",
   };
+}
+
+export function resolveStoredAgentRoleId(
+  sessionKey: string | undefined | null,
+  opts?: {
+    cfg?: OpenClawConfig;
+    store?: Record<string, SessionCapabilityEntry>;
+  },
+): string | undefined {
+  const normalizedSessionKey = normalizeSessionKey(sessionKey);
+  if (!normalizedSessionKey) {
+    return undefined;
+  }
+  const entry = resolveSessionCapabilityEntry({
+    sessionKey: normalizedSessionKey,
+    cfg: opts?.cfg,
+    store: opts?.store,
+  });
+  return normalizeAgentRoleId(entry?.agentRoleId);
 }

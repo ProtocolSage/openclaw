@@ -46,6 +46,7 @@ export { decodeStrictBase64 };
 
 export type SpawnSubagentParams = {
   task: string;
+  roleId?: string;
   label?: string;
   agentId?: string;
   model?: string;
@@ -441,6 +442,7 @@ export async function spawnSubagentDirect(
   const spawnDepthPatchError = await patchChildSession({
     spawnDepth: childDepth,
     subagentRole: childCapabilities.role === "main" ? null : childCapabilities.role,
+    agentRoleId: params.roleId?.trim().toLowerCase() || null,
     subagentControlScope: childCapabilities.controlScope,
   });
   if (spawnDepthPatchError) {

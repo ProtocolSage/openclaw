@@ -1,4 +1,5 @@
 import { Type } from "@sinclair/typebox";
+import type { GoalManager } from "../../goals/manager.js";
 import type { GatewayMessageChannel } from "../../utils/message-channel.js";
 import { ACP_SPAWN_MODES, ACP_SPAWN_STREAM_TARGETS, spawnAcpDirect } from "../acp-spawn.js";
 import { optionalStringEnum } from "../schema/typebox.js";
@@ -22,6 +23,8 @@ const UNSUPPORTED_SESSIONS_SPAWN_PARAM_KEYS = [
 
 const SessionsSpawnToolSchema = Type.Object({
   task: Type.String(),
+  taskId: Type.Optional(Type.String()),
+  roleId: Type.Optional(Type.String()),
   label: Type.Optional(Type.String()),
   runtime: optionalStringEnum(SESSIONS_SPAWN_RUNTIMES),
   agentId: Type.Optional(Type.String()),
@@ -65,8 +68,38 @@ const SessionsSpawnToolSchema = Type.Object({
   ),
 });
 
+function recordDelegatedSpawn(params: {
+  goalManager?: GoalManager;
+  linkedTask: { id: string } | null;
+  childSessionKey?: string;
+  runId?: string;
+  notes: string;
+}): void {
+  if (
+    !params.goalManager ||
+    !params.linkedTask ||
+    typeof params.childSessionKey !== "string" ||
+    !params.childSessionKey
+  ) {
+    return;
+  }
+  params.goalManager.delegateTask(params.linkedTask.id, {
+    assignedSessionKey: params.childSessionKey,
+    result: "Delegated via sessions_spawn",
+  });
+  params.goalManager.recordAttempt(params.linkedTask.id, {
+    runId: params.runId ?? `spawn-${Date.now().toString(36)}`,
+    sessionKey: params.childSessionKey,
+    startedAt: Date.now(),
+    finishedAt: null,
+    outcome: null,
+    notes: params.notes,
+  });
+}
+
 export function createSessionsSpawnTool(
   opts?: {
+    goalManager?: GoalManager;
     agentSessionKey?: string;
     agentChannel?: GatewayMessageChannel;
     agentAccountId?: string;
@@ -94,6 +127,8 @@ export function createSessionsSpawnTool(
         );
       }
       const task = readStringParam(params, "task", { required: true });
+      const taskId = readStringParam(params, "taskId");
+      const roleId = readStringParam(params, "roleId");
       const label = typeof params.label === "string" ? params.label.trim() : "";
       const runtime = params.runtime === "acp" ? "acp" : "subagent";
       const requestedAgentId = readStringParam(params, "agentId");
@@ -126,6 +161,37 @@ export function createSessionsSpawnTool(
             mimeType?: string;
           }>)
         : undefined;
+      const linkedTask = taskId && opts?.goalManager ? opts.goalManager.getTask(taskId) : null;
+      if (taskId && !linkedTask) {
+        return jsonResult({
+          status: "error",
+          error: `Task not found: ${taskId}`,
+        });
+      }
+      if (
+        linkedTask &&
+        linkedTask.status !== "delegated" &&
+        !opts?.goalManager?.validateTaskTransition(linkedTask.status, "delegated")
+      ) {
+        return jsonResult({
+          status: "error",
+          error: `Task ${linkedTask.id} cannot be delegated from status ${linkedTask.status}`,
+        });
+      }
+      const linkedGoal =
+        linkedTask && opts?.goalManager ? opts.goalManager.getGoal(linkedTask.goalId) : null;
+      const delegatedTaskText = linkedTask
+        ? [
+            `[Delegated Task Context] Task ${linkedTask.id}: ${linkedTask.title}`,
+            linkedTask.description
+              ? `[Delegated Task Description] ${linkedTask.description}`
+              : undefined,
+            linkedGoal ? `[Delegated Goal] ${linkedGoal.title}` : undefined,
+            `[Requested Work] ${task}`,
+          ]
+            .filter((line): line is string => Boolean(line))
+            .join("\n")
+        : task;
 
       if (streamTo && runtime !== "acp") {
         return jsonResult({
@@ -151,7 +217,7 @@ export function createSessionsSpawnTool(
         }
         const result = await spawnAcpDirect(
           {
-            task,
+            task: delegatedTaskText,
             label: label || undefined,
             agentId: requestedAgentId,
             resumeSessionId,
@@ -170,12 +236,22 @@ export function createSessionsSpawnTool(
             sandboxed: opts?.sandboxed,
           },
         );
+        if (result.status === "accepted") {
+          recordDelegatedSpawn({
+            goalManager: opts?.goalManager,
+            linkedTask,
+            childSessionKey: result.childSessionKey,
+            runId: result.runId,
+            notes: "Delegated via sessions_spawn (acp)",
+          });
+        }
         return jsonResult(result);
       }
 
       const result = await spawnSubagentDirect(
         {
-          task,
+          task: delegatedTaskText,
+          roleId,
           label: label || undefined,
           agentId: requestedAgentId,
           model: modelOverride,
@@ -205,6 +281,16 @@ export function createSessionsSpawnTool(
           workspaceDir: opts?.workspaceDir,
         },
       );
+
+      if (result.status === "accepted") {
+        recordDelegatedSpawn({
+          goalManager: opts?.goalManager,
+          linkedTask,
+          childSessionKey: result.childSessionKey,
+          runId: result.runId,
+          notes: "Delegated via sessions_spawn",
+        });
+      }
 
       return jsonResult(result);
     },

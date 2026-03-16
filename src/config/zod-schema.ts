@@ -203,6 +203,25 @@ const TalkSchema = z
     }
   });
 
+const NudgePolicySchema = z
+  .object({
+    maxNudgesPerHour: z.number().int().positive().optional(),
+    quietHoursStart: z.number().int().min(0).max(23).optional(),
+    quietHoursEnd: z.number().int().min(0).max(23).optional(),
+    deduplicateWindowMs: z.number().int().nonnegative().optional(),
+    activeChannelWindowHours: z.number().int().positive().optional(),
+  })
+  .strict();
+
+const InitiativeSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    horizonScanIntervalMins: z.number().int().positive().optional(),
+    nudgePolicy: NudgePolicySchema.optional(),
+  })
+  .strict()
+  .optional();
+
 export const OpenClawSchema = z
   .object({
     $schema: z.string().optional(),
@@ -852,6 +871,7 @@ export const OpenClawSchema = z
       })
       .optional(),
     memory: MemorySchema,
+    initiative: InitiativeSchema,
     skills: z
       .object({
         allowBundled: z.array(z.string()).optional(),

@@ -145,6 +145,7 @@ export function buildGatewayCronService(params: {
   cfg: ReturnType<typeof loadConfig>;
   deps: CliDeps;
   broadcast: (event: string, payload: unknown, opts?: { dropIfSlow?: boolean }) => void;
+  onEvent?: (evt: import("../cron/service.js").CronEvent) => void;
 }): GatewayCronState {
   const cronLogger = getChildLogger({ module: "cron" });
   const storePath = resolveCronStorePath(params.cfg.cron?.store);
@@ -364,6 +365,7 @@ export function buildGatewayCronService(params: {
     log: getChildLogger({ module: "cron", storePath }),
     onEvent: (evt) => {
       params.broadcast("cron", evt, { dropIfSlow: true });
+      params.onEvent?.(evt);
       if (evt.action === "finished") {
         const webhookToken = trimToOptionalString(params.cfg.cron?.webhookToken);
         const legacyWebhook = trimToOptionalString(params.cfg.cron?.webhook);
