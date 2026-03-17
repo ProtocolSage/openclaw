@@ -927,7 +927,7 @@ export async function runEmbeddedPiAgent(
             bootstrapPromptWarningSignaturesSeen,
             bootstrapPromptWarningSignature:
               bootstrapPromptWarningSignaturesSeen[bootstrapPromptWarningSignaturesSeen.length - 1],
-            verifierContext: params.verifierContext,
+            verifierServices: params.verifierServices,
           });
 
           const {

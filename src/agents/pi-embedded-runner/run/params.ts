@@ -5,7 +5,7 @@ import type { AgentStreamParams } from "../../../commands/agent/types.js";
 import type { OpenClawConfig } from "../../../config/config.js";
 import type { enqueueCommand } from "../../../process/command-queue.js";
 import type { InputProvenance } from "../../../sessions/input-provenance.js";
-import type { VerifierContext } from "../../../verifier/types.js";
+import type { VerifierServices } from "../../../verifier/types.js";
 import type { ExecElevatedDefaults, ExecToolDefaults } from "../../bash-tools.js";
 import type { BlockReplyPayload } from "../../pi-embedded-payloads.js";
 import type { BlockReplyChunking, ToolResultFormat } from "../../pi-embedded-subscribe.js";
@@ -126,6 +126,6 @@ export type RunEmbeddedPiAgentParams = {
    * where transient service pressure is often model-scoped.
    */
   allowTransientCooldownProbe?: boolean;
-  /** Trajectory verifier context for inline gate wrapping. */
-  verifierContext?: VerifierContext;
+  /** Gateway-shared verifier services for composing run-scoped context. */
+  verifierServices?: VerifierServices;
 };
