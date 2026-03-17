@@ -872,6 +872,7 @@ export const OpenClawSchema = z
       .optional(),
     memory: MemorySchema,
     initiative: InitiativeSchema,
+    verifier: z.record(z.string(), z.unknown()).optional(),
     skills: z
       .object({
         allowBundled: z.array(z.string()).optional(),
