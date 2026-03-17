@@ -19,6 +19,7 @@ import type {
   VerifierCacheEntry,
   VerifierConfig,
   VerifierContext,
+  VerifierServices,
 } from "./types.js";
 
 // ── In-memory cache implementation ──
@@ -159,6 +160,7 @@ export interface VerifierDeps {
 
 export interface VerifierWiring {
   context: VerifierContext;
+  services: VerifierServices;
   wrapTool: typeof wrapToolWithInlineGate;
   shutdown: () => void;
 }
@@ -188,6 +190,12 @@ export function initializeVerifier(deps: VerifierDeps): VerifierWiring {
     sendToSession: deps.sendToSession,
   };
 
+  const services: VerifierServices = {
+    config,
+    llmCall,
+    cache,
+  };
+
   // Register cron (fire-and-forget; registration is idempotent)
   if (deps.cronService) {
     void registerVerifierCron(deps.cronService, config);
@@ -195,6 +203,7 @@ export function initializeVerifier(deps: VerifierDeps): VerifierWiring {
 
   return {
     context,
+    services,
     wrapTool: wrapToolWithInlineGate,
     shutdown: () => {
       // Cache is in-memory — nothing to close.
