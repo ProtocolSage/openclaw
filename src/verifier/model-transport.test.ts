@@ -10,22 +10,37 @@ vi.mock("../agents/pi-embedded-runner/model.js", () => ({
   resolveModel: vi.fn(),
 }));
 
+vi.mock("../agents/model-auth.js", () => ({
+  getApiKeyForModel: vi.fn(),
+  requireApiKey: vi.fn(),
+}));
+
 import { streamSimple } from "@mariozechner/pi-ai";
+import { getApiKeyForModel, requireApiKey } from "../agents/model-auth.js";
 import { resolveModel } from "../agents/pi-embedded-runner/model.js";
 
 const mockStreamSimple = vi.mocked(streamSimple);
+const mockGetApiKeyForModel = vi.mocked(getApiKeyForModel);
+const mockRequireApiKey = vi.mocked(requireApiKey);
 const mockResolveModel = vi.mocked(resolveModel);
 
 describe("createVerifierCallModel", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetApiKeyForModel.mockResolvedValue({
+      apiKey: "oauth-token",
+      mode: "oauth",
+      source: "profile:openai-codex:default",
+    });
+    mockRequireApiKey.mockReturnValue("oauth-token");
   });
 
-  it("parses modelRef as provider/modelId and calls streamSimple", async () => {
+  it("parses modelRef as provider/modelId and calls streamSimple with resolved auth", async () => {
+    const authStorage = { setRuntimeApiKey: vi.fn() };
     const fakeModel = { provider: "openai-codex", id: "gpt-5.4", api: "openai" };
     mockResolveModel.mockReturnValue({
       model: fakeModel as never,
-      authStorage: {} as never,
+      authStorage: authStorage as never,
       modelRegistry: {} as never,
     });
 
@@ -39,7 +54,9 @@ describe("createVerifierCallModel", () => {
     } as never);
 
     const callModel = createVerifierCallModel({ agentDir: "/tmp/test-agent" });
-    const result = await callModel("openai-codex/gpt-5.4", [{ role: "user", content: "test" }]);
+    const result = await callModel("openai-codex/gpt-5.4", [{ role: "user", content: "test" }], {
+      fastMode: true,
+    });
 
     expect(result.content).toBe("Hello world");
     expect(mockResolveModel).toHaveBeenCalledWith(
@@ -48,6 +65,24 @@ describe("createVerifierCallModel", () => {
       "/tmp/test-agent",
       undefined,
     );
+    expect(mockGetApiKeyForModel).toHaveBeenCalledWith({
+      model: fakeModel,
+      cfg: undefined,
+      agentDir: "/tmp/test-agent",
+    });
+    expect(mockRequireApiKey).toHaveBeenCalledWith(
+      {
+        apiKey: "oauth-token",
+        mode: "oauth",
+        source: "profile:openai-codex:default",
+      },
+      "openai-codex",
+    );
+    expect(authStorage.setRuntimeApiKey).toHaveBeenCalledWith("openai-codex", "oauth-token");
+    expect(mockStreamSimple).toHaveBeenCalledWith(fakeModel, [{ role: "user", content: "test" }], {
+      apiKey: "oauth-token",
+      fastMode: true,
+    });
   });
 
   it("throws when model cannot be resolved", async () => {
@@ -65,10 +100,11 @@ describe("createVerifierCallModel", () => {
   });
 
   it("handles modelRef without slash as provider=modelRef, modelId=modelRef", async () => {
+    const authStorage = { setRuntimeApiKey: vi.fn() };
     const fakeModel = { provider: "grok", id: "grok", api: "openai" };
     mockResolveModel.mockReturnValue({
       model: fakeModel as never,
-      authStorage: {} as never,
+      authStorage: authStorage as never,
       modelRegistry: {} as never,
     });
     mockStreamSimple.mockReturnValue({
@@ -84,11 +120,12 @@ describe("createVerifierCallModel", () => {
   });
 
   it("passes config to resolveModel when provided", async () => {
+    const authStorage = { setRuntimeApiKey: vi.fn() };
     const cfg = { models: {} } as never;
     const fakeModel = { provider: "xai", id: "grok-4", api: "openai" };
     mockResolveModel.mockReturnValue({
       model: fakeModel as never,
-      authStorage: {} as never,
+      authStorage: authStorage as never,
       modelRegistry: {} as never,
     });
     mockStreamSimple.mockReturnValue({
@@ -101,5 +138,10 @@ describe("createVerifierCallModel", () => {
     await callModel("xai/grok-4", [{ role: "user", content: "test" }]);
 
     expect(mockResolveModel).toHaveBeenCalledWith("xai", "grok-4", "/tmp/test", cfg);
+    expect(mockGetApiKeyForModel).toHaveBeenCalledWith({
+      model: fakeModel,
+      cfg,
+      agentDir: "/tmp/test",
+    });
   });
 });

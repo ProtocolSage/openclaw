@@ -163,6 +163,77 @@ Add this section alongside your existing config:
 }
 ```
 
+## Operational Rollout
+
+### 1. Enable the verifier in `~/.openclaw/openclaw.json`
+
+```jsonc
+{
+  "verifier": {
+    "enabled": true,
+    "models": {
+      "routine": "openai-codex/gpt-5.4",
+      "deep": "openai-codex/gpt-5.4",
+      "fallback": "xai/grok-4-1-fast-reasoning",
+    },
+  },
+}
+```
+
+The `models` block is optional because these are already the defaults in
+`DEFAULT_VERIFIER_CONFIG`, but keeping it in the config makes the verifier
+setup self-documenting.
+
+### 2. Verify the Codex auth profile exists
+
+```bash
+# Check existing auth profiles for the default agent
+cat ~/.openclaw/agents/*/auth-profiles.json | grep -o '"openai-codex[^"]*"' | head -5
+```
+
+If no Codex profile exists, run onboarding or direct auth login:
+
+```bash
+openclaw onboard --provider openai-codex
+```
+
+Or:
+
+```bash
+openclaw models auth login --provider openai-codex
+```
+
+If OpenClaw was already onboarded with Codex OAuth, this profile should
+already exist.
+
+### 3. Verify the fallback auth profile (optional)
+
+```bash
+cat ~/.openclaw/agents/*/auth-profiles.json | grep -o '"xai[^"]*"' | head -5
+```
+
+If xAI auth is missing, the fallback chain in `src/verifier/llm-call.ts`
+will degrade to safe defaults instead of crashing:
+
+- routine check parse failure path returns `aligned: "unclear"` with `confidence: 0.3`
+- deep check parse failure path returns a safe block verdict
+
+### 4. Smoke test
+
+```bash
+# Rebuild
+pnpm build
+
+# Run verifier tests
+pnpm test -- src/verifier/
+```
+
+Then start the gateway, trigger an agent turn, and watch logs for:
+
+```text
+Verifier calling openai-codex/gpt-5.4
+```
+
 ## Files Generated
 
 | File                             | Purpose                                                              |
