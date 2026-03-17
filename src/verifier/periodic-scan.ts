@@ -35,7 +35,7 @@ export async function registerVerifierCron(
 
   const created = await cronService.add({
     name: VERIFIER_PERIODIC_SCAN_JOB_NAME,
-    agentId: "default",
+    agentId: "main",
     schedule: {
       kind: "every",
       everyMs: Math.max(1, config.scanIntervalMins) * 60_000,
