@@ -60,13 +60,14 @@ describe("composeRunVerifierContext", () => {
       sendToSession,
     });
 
-    expect(ctx.config).toBe(services.config);
-    expect(ctx.llmCall).toBe(services.llmCall);
-    expect(ctx.cache).toBe(services.cache);
-    expect(ctx.goalManager).toBe(goalManager);
-    expect(ctx.auditStore).toBe(auditStore);
-    expect(ctx.feedbackStore).toBe(feedbackStore);
-    expect(ctx.sendToSession).toBe(sendToSession);
+    expect(ctx).toBeDefined();
+    expect(ctx!.config).toBe(services.config);
+    expect(ctx!.llmCall).toBe(services.llmCall);
+    expect(ctx!.cache).toBe(services.cache);
+    expect(ctx!.goalManager).toBe(goalManager);
+    expect(ctx!.auditStore).toBe(auditStore);
+    expect(ctx!.feedbackStore).toBe(feedbackStore);
+    expect(ctx!.sendToSession).toBe(sendToSession);
   });
 
   it("returns undefined when services is undefined", () => {
