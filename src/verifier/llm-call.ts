@@ -162,29 +162,57 @@ export class DeepCheckBudget {
   constructor(private maxPerGoalPerHour: number) {}
 
   canCheck(goalId: string): boolean {
-    this.prune(goalId);
+    this.pruneGoal(goalId);
     const history = this.calls.get(goalId);
     return !history || history.length < this.maxPerGoalPerHour;
   }
 
   record(goalId: string): void {
-    this.prune(goalId);
+    this.pruneGoal(goalId);
     const history = this.calls.get(goalId) ?? [];
     history.push(Date.now());
     this.calls.set(goalId, history);
   }
 
-  private prune(goalId: string): void {
-    const history = this.calls.get(goalId);
-    if (!history) {
-      return;
-    }
-    const oneHourAgo = Date.now() - 3_600_000;
-    const pruned = history.filter((t) => t > oneHourAgo);
-    if (pruned.length === 0) {
-      this.calls.delete(goalId);
+  private pruneGoal(goalId: string): void {
+    this.prune(goalId);
+  }
+
+  /** Prune expired entries and cap memory growth. */
+  prune(goalId?: string): void {
+    const now = Date.now();
+    const oneHourAgo = now - 3_600_000;
+
+    if (goalId) {
+      // Single-goal prune (called from canCheck/record)
+      const history = this.calls.get(goalId);
+      if (!history) {
+        return;
+      }
+      const fresh = history.filter((t) => t > oneHourAgo);
+      if (fresh.length === 0) {
+        this.calls.delete(goalId);
+      } else {
+        this.calls.set(goalId, fresh.slice(-50));
+      }
     } else {
-      this.calls.set(goalId, pruned);
+      // Full prune across all goals
+      for (const [gid, timestamps] of this.calls) {
+        const fresh = timestamps.filter((t) => t > oneHourAgo);
+        if (fresh.length === 0) {
+          this.calls.delete(gid);
+        } else {
+          this.calls.set(gid, fresh.slice(-50));
+        }
+      }
+    }
+
+    // Cap total tracked goals to prevent unbounded memory growth
+    if (this.calls.size > 500) {
+      const sorted = [...this.calls.entries()].toSorted(
+        (a, b) => Math.max(...b[1]) - Math.max(...a[1]),
+      );
+      this.calls = new Map(sorted.slice(0, 500));
     }
   }
 }

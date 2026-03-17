@@ -57,7 +57,7 @@ export type PeriodicScanResult =
   | { status: "ignored" }
   | { status: "disabled" }
   | { status: "cron_error" }
-  | { status: "scanned"; scanned: number; nudged: number };
+  | { status: "scanned"; scanned: number; nudged: number; failed: number };
 
 // ── Cron event handler ──
 
@@ -84,6 +84,7 @@ export async function handleVerifierCronEvent(
   const goals = await context.goalManager.getActiveGoals();
   let scanned = 0;
   let nudged = 0;
+  let failed = 0;
 
   for (const goal of goals) {
     try {
@@ -141,6 +142,7 @@ export async function handleVerifierCronEvent(
 
       scanned++;
     } catch (err) {
+      failed++;
       log.error(`Periodic scan failed for goal "${goal.id}": ${String(err)}`);
     }
   }
@@ -148,5 +150,5 @@ export async function handleVerifierCronEvent(
   // Reset metrics after full scan cycle
   context.cache.resetMetrics();
 
-  return { status: "scanned", scanned, nudged };
+  return { status: "scanned", scanned, nudged, failed };
 }

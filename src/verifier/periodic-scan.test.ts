@@ -268,7 +268,7 @@ describe("handleVerifierCronEvent", () => {
   it("scans zero goals when no active goals exist", async () => {
     const evt = makeCronEvent();
     const result = await handleVerifierCronEvent(evt, context);
-    expect(result).toEqual({ status: "scanned", scanned: 0, nudged: 0 });
+    expect(result).toEqual({ status: "scanned", scanned: 0, nudged: 0, failed: 0 });
   });
 
   it("scans a clean goal without nudging", async () => {
@@ -287,7 +287,7 @@ describe("handleVerifierCronEvent", () => {
 
     const evt = makeCronEvent();
     const result = await handleVerifierCronEvent(evt, context);
-    expect(result).toEqual({ status: "scanned", scanned: 1, nudged: 0 });
+    expect(result).toEqual({ status: "scanned", scanned: 1, nudged: 0, failed: 0 });
     expect(context.sendToSession).not.toHaveBeenCalled();
   });
 
@@ -442,7 +442,7 @@ describe("handleVerifierCronEvent", () => {
     const evt = makeCronEvent();
     const result = await handleVerifierCronEvent(evt, context);
     // Only the second goal succeeds
-    expect(result).toEqual({ status: "scanned", scanned: 1, nudged: 0 });
+    expect(result).toEqual({ status: "scanned", scanned: 1, nudged: 0, failed: 1 });
     expect(callCount).toBe(2);
   });
 

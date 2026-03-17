@@ -6,6 +6,9 @@
 
 import type { VerifierConfigSection } from "../config/types.verifier.js";
 import type { CronService } from "../cron/service.js";
+import { createSubsystemLogger } from "../logging/subsystem.js";
+
+const log = createSubsystemLogger("verifier");
 import { wrapToolWithInlineGate } from "./inline-gate.js";
 import { createVerifierLlmCall, DeepCheckBudget } from "./llm-call.js";
 import { registerVerifierCron } from "./periodic-scan.js";
@@ -67,8 +70,8 @@ export class InMemoryVerifierCache implements VerifierCache {
     return snapshot;
   }
 
-  // Per-goal mutex via promise chain
-  async acquireLock(goalId: string): Promise<() => void> {
+  // Per-goal mutex via promise chain with timeout to prevent deadlocks
+  async acquireLock(goalId: string, timeoutMs = 30_000): Promise<() => void> {
     const existing = this.locks.get(goalId) ?? Promise.resolve();
 
     let release: () => void;
@@ -80,7 +83,12 @@ export class InMemoryVerifierCache implements VerifierCache {
       goalId,
       existing.then(() => next),
     );
-    await existing;
+
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(`Verifier lock timeout for goal ${goalId}`)), timeoutMs),
+    );
+
+    await Promise.race([existing, timeout]);
 
     return release!;
   }
@@ -89,7 +97,7 @@ export class InMemoryVerifierCache implements VerifierCache {
 // ── Default config ──
 
 export const DEFAULT_VERIFIER_CONFIG: VerifierConfig = {
-  enabled: true,
+  enabled: false,
   scanIntervalMins: 5,
   scanIntervalUnclearMins: 2,
   cacheTtlMs: 150_000, // 2.5 min
@@ -229,5 +237,9 @@ export function setGatewayVerifierServices(services: VerifierServices): void {
 
 /** Retrieve the gateway verifier services, if initialized. */
 export function getGatewayVerifierServices(): VerifierServices | undefined {
-  return (globalThis as VerifierServicesGlobal)[verifierServicesKey];
+  const services = (globalThis as VerifierServicesGlobal)[verifierServicesKey];
+  if (!services) {
+    log.debug?.("getGatewayVerifierServices: not yet initialized");
+  }
+  return services;
 }

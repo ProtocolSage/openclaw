@@ -12,7 +12,7 @@ import type {
 
 function makeServices(overrides?: Partial<VerifierServices>): VerifierServices {
   return {
-    config: { ...DEFAULT_VERIFIER_CONFIG },
+    config: { ...DEFAULT_VERIFIER_CONFIG, enabled: true },
     llmCall: vi.fn() as unknown as LlmCallFn,
     cache: {
       get: vi.fn().mockReturnValue(null),

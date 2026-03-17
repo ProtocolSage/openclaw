@@ -550,7 +550,9 @@ export async function startGatewayServer(
       agentDir: defaultAgentDir,
       config: cfgAtStart,
     }),
-    userConfig: verifierCfg,
+    userConfig: verifierCfg
+      ? { ...verifierCfg, enabled: verifierCfg.enabled ?? false }
+      : { enabled: false },
   });
   setGatewayVerifierServices(verifier.services);
 
