@@ -211,3 +211,23 @@ export function initializeVerifier(deps: VerifierDeps): VerifierWiring {
     },
   };
 }
+
+// ── Gateway-level singleton accessor ──
+// Allows ingress paths (auto-reply, CLI agent, cron) to resolve the
+// verifier services without threading them through serializable queue payloads.
+
+const verifierServicesKey = Symbol.for("openclaw.verifier.services");
+
+type VerifierServicesGlobal = typeof globalThis & {
+  [verifierServicesKey]?: VerifierServices;
+};
+
+/** Store verifierServices for gateway-wide access. Called once at startup. */
+export function setGatewayVerifierServices(services: VerifierServices): void {
+  (globalThis as VerifierServicesGlobal)[verifierServicesKey] = services;
+}
+
+/** Retrieve the gateway verifier services, if initialized. */
+export function getGatewayVerifierServices(): VerifierServices | undefined {
+  return (globalThis as VerifierServicesGlobal)[verifierServicesKey];
+}

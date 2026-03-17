@@ -29,6 +29,7 @@ import {
   resolveMessageChannel,
 } from "../../utils/message-channel.js";
 import { isInternalMessageChannel } from "../../utils/message-channel.js";
+import { getGatewayVerifierServices } from "../../verifier/gateway-wiring.js";
 import { stripHeartbeatToken } from "../heartbeat.js";
 import type { TemplateContext } from "../templating.js";
 import type { VerboseLevel } from "../thinking.js";
@@ -429,6 +430,7 @@ export async function runAgentTurnWithFallback(params: {
                     : undefined,
                 shouldEmitToolResult: params.shouldEmitToolResult,
                 shouldEmitToolOutput: params.shouldEmitToolOutput,
+                verifierServices: getGatewayVerifierServices(),
                 bootstrapPromptWarningSignaturesSeen,
                 bootstrapPromptWarningSignature:
                   bootstrapPromptWarningSignaturesSeen[

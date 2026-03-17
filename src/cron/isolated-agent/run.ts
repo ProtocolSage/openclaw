@@ -56,6 +56,7 @@ import {
   isExternalHookSession,
 } from "../../security/external-content.js";
 import { emitSecurityEvent } from "../../security/security-events.js";
+import { getGatewayVerifierServices } from "../../verifier/gateway-wiring.js";
 import { resolveCronDeliveryPlan } from "../delivery.js";
 import type { CronJob, CronRunOutcome, CronRunTelemetry } from "../types.js";
 import {
@@ -651,6 +652,7 @@ export async function runCronIsolatedAgentTurn(params: {
             disableMessageTool: toolPolicy.disableMessageTool,
             allowTransientCooldownProbe: runOptions?.allowTransientCooldownProbe,
             abortSignal,
+            verifierServices: getGatewayVerifierServices(),
             bootstrapPromptWarningSignaturesSeen,
             bootstrapPromptWarningSignature,
           });

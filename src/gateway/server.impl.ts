@@ -76,7 +76,7 @@ import {
   prepareSecretsRuntimeSnapshot,
   resolveCommandSecretsFromActiveRuntimeSnapshot,
 } from "../secrets/runtime.js";
-import { initializeVerifier } from "../verifier/gateway-wiring.js";
+import { initializeVerifier, setGatewayVerifierServices } from "../verifier/gateway-wiring.js";
 import { createVerifierCallModel } from "../verifier/model-transport.js";
 import { handleVerifierCronEvent, registerVerifierCron } from "../verifier/periodic-scan.js";
 import {
@@ -554,6 +554,7 @@ export async function startGatewayServer(
       ? { ...verifierCfg, enabled: verifierCfg.enabled ?? false }
       : { enabled: false },
   });
+  setGatewayVerifierServices(verifier.services);
 
   const baseMethods = listGatewayMethods();
   const emptyPluginRegistry = createEmptyPluginRegistry();
