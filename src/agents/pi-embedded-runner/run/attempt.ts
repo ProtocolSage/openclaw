@@ -48,6 +48,12 @@ import { resolveUserPath } from "../../../utils.js";
 import { normalizeMessageChannel } from "../../../utils/message-channel.js";
 import { INTERNAL_MESSAGE_CHANNEL } from "../../../utils/message-channel.js";
 import { isReasoningTagProvider } from "../../../utils/provider-utils.js";
+import { composeRunVerifierContext } from "../../../verifier/services.js";
+import type {
+  AuditStoreReader,
+  EscalationLevel,
+  FeedbackStoreReader,
+} from "../../../verifier/types.js";
 import { resolveOpenClawAgentDir } from "../../agent-paths.js";
 import { resolveSessionAgentIds } from "../../agent-scope.js";
 import { createAnthropicPayloadLogger } from "../../anthropic-payload-log.js";
@@ -1537,6 +1543,88 @@ export async function runEmbeddedAttempt(
         timeoutMs: 10_000,
       });
     };
+
+    // -- Verifier store adapters --
+    const auditStoreReader: AuditStoreReader = {
+      async getRecentEntries(goalId, opts) {
+        const since = Date.now() - opts.maxMinutes * 60_000;
+        const entries = auditStore.query({
+          goalId,
+          since,
+          limit: opts.maxEntries,
+        });
+        return entries.map((e) => ({
+          toolName: e.toolName,
+          outcome: e.outcome,
+          at: e.at,
+          toolInput: e.toolInput,
+        }));
+      },
+    };
+
+    const feedbackStoreReader: FeedbackStoreReader = {
+      async getRecentSignals(_goalId) {
+        const signals = feedbackStore.listSignals({ limit: 50 });
+        return signals.map((s) => ({
+          type: s.type,
+          payload: s.payload ? JSON.parse(s.payload) : null,
+          at: s.at,
+        }));
+      },
+      async getOverrideStats(_goalId) {
+        const overrides = feedbackStore.listSignals({
+          type: "verification_override",
+          limit: 200,
+        });
+        const results = feedbackStore.listSignals({
+          type: "verification_result",
+          limit: 200,
+        });
+        return {
+          confirmed: results.length,
+          overridden: overrides.length,
+        };
+      },
+    };
+
+    const PRIORITY_LABELS: Record<number, string> = {
+      1: "critical",
+      2: "high",
+      3: "medium",
+      4: "low",
+      5: "low",
+    };
+
+    const verifierContext = composeRunVerifierContext({
+      services: params.verifierServices,
+      goalManager: {
+        async getActiveGoals() {
+          const goals = goalManager.getActiveGoals(sessionAgentId);
+          return goals.map((g) => ({
+            id: g.id,
+            title: g.title,
+            status: g.status,
+            deadlineMs: g.deadlineMs ?? undefined,
+            priority: PRIORITY_LABELS[g.priority],
+          }));
+        },
+        async getTasksForGoal(goalId: string) {
+          const tasks = goalManager.listTasks({ goalId });
+          return tasks.map((t) => ({
+            title: t.title,
+            status: t.status,
+            lastUpdatedAt: t.completedAt ?? t.createdAt,
+          }));
+        },
+      },
+      auditStore: auditStoreReader,
+      feedbackStore: feedbackStoreReader,
+      sendToSession: (message: string, _level: EscalationLevel) => {
+        const targetKey = params.sessionKey ?? params.sessionId;
+        void sendToSession(targetKey, message);
+      },
+    });
+
     const toolsRaw = params.disableTools
       ? []
       : createOpenClawCodingTools({
@@ -1595,7 +1683,7 @@ export async function runEmbeddedAttempt(
           sendToSession,
           auditStore,
           feedbackStore,
-          verifierContext: params.verifierContext,
+          verifierContext,
         });
     const toolsEnabled = supportsModelTools(params.model);
     const tools = sanitizeToolsForGoogle({
