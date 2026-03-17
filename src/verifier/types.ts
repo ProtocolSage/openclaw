@@ -168,6 +168,14 @@ export interface VerifierContext {
   sendToSession: (message: string, level: EscalationLevel) => void;
 }
 
+// ── Gateway-scoped shared services (threaded to embedded runs) ──
+// Runs compose a full VerifierContext from these + local stores.
+export interface VerifierServices {
+  config: VerifierConfig;
+  llmCall: LlmCallFn;
+  cache: VerifierCache;
+}
+
 // ── Read-only store interfaces (no new stores) ──
 export interface GoalManagerReader {
   getActiveGoals(): Promise<
