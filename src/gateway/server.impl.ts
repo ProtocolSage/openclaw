@@ -77,7 +77,12 @@ import {
   resolveCommandSecretsFromActiveRuntimeSnapshot,
 } from "../secrets/runtime.js";
 import { initializeVerifier } from "../verifier/gateway-wiring.js";
+import { createVerifierCallModel } from "../verifier/model-transport.js";
 import { handleVerifierCronEvent, registerVerifierCron } from "../verifier/periodic-scan.js";
+import {
+  createGatewayAuditReader,
+  createGatewayFeedbackReader,
+} from "../verifier/store-adapters.js";
 import { runOnboardingWizard } from "../wizard/onboarding.js";
 import { createAuthRateLimiter, type AuthRateLimiter } from "./auth-rate-limit.js";
 import { startChannelHealthMonitor } from "./channel-health-monitor.js";
@@ -534,33 +539,17 @@ export async function startGatewayServer(
         }));
       },
     },
-    auditStore: {
-      async getRecentEntries(_goalId, _opts) {
-        // Periodic scan opens per-scan DB handles; inline gate uses per-session stores.
-        // Gateway-level periodic scan audit access not yet wired — returns empty for now.
-        return [];
-      },
-    },
-    feedbackStore: {
-      async getRecentSignals() {
-        return [];
-      },
-      async getOverrideStats() {
-        return { confirmed: 0, overridden: 0 };
-      },
-    },
+    auditStore: createGatewayAuditReader(path.join(defaultAgentDir, "audit.db")),
+    feedbackStore: createGatewayFeedbackReader(path.join(defaultAgentDir, "feedback.db")),
     // Cron service not yet created; verifier cron registered after cronState is built below.
     sendToSession: (msg, _level) => {
       enqueueSystemEvent(msg, { sessionKey: resolveMainSessionKey(cfgAtStart) });
       requestHeartbeatNow({ reason: "verifier", sessionKey: resolveMainSessionKey(cfgAtStart) });
     },
-    callModel: async (_modelRef, _messages, _params) => {
-      // Model call transport will be wired when provider adapter supports standalone calls.
-      return {
-        content:
-          '{"schemaVersion":1,"aligned":"unclear","confidence":0.3,"reason":"Model transport not yet wired","severity":"low"}',
-      };
-    },
+    callModel: createVerifierCallModel({
+      agentDir: defaultAgentDir,
+      config: cfgAtStart,
+    }),
     userConfig: verifierCfg
       ? { ...verifierCfg, enabled: verifierCfg.enabled ?? false }
       : { enabled: false },
