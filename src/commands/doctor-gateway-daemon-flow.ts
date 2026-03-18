@@ -1,3 +1,4 @@
+import fs from "node:fs/promises";
 import { formatCliCommand } from "../cli/command-format.js";
 import type { OpenClawConfig } from "../config/config.js";
 import { resolveGatewayPort } from "../config/config.js";
@@ -6,6 +7,7 @@ import {
   resolveNodeLaunchAgentLabel,
 } from "../daemon/constants.js";
 import { readLastGatewayErrorLine } from "../daemon/diagnostics.js";
+import { execFileUtf8 } from "../daemon/exec-file.js";
 import {
   isLaunchAgentListed,
   isLaunchAgentLoaded,
@@ -86,6 +88,95 @@ async function maybeRepairLaunchAgentBootstrap(params: {
   return true;
 }
 
+/** Read /etc/wsl.conf and return true if [boot] systemd=true is already set. */
+async function checkWslSystemdEnabled(): Promise<boolean> {
+  try {
+    const content = await fs.readFile("/etc/wsl.conf", "utf8");
+    let inBootSection = false;
+    for (const raw of content.split(/\r?\n/)) {
+      const line = raw.trim();
+      if (line.startsWith("[")) {
+        inBootSection = line.toLowerCase() === "[boot]";
+        continue;
+      }
+      if (!inBootSection) {
+        continue;
+      }
+      const [key, ...rest] = line.split("=");
+      if (key?.trim().toLowerCase() === "systemd" && rest.join("=").trim() === "true") {
+        return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Append or update [boot] systemd=true in /etc/wsl.conf.
+ * Uses execFileUtf8 (no shell injection risk) via a temp file + sudo cp.
+ */
+async function applyWslSystemdPatch(): Promise<void> {
+  let existing = "";
+  try {
+    existing = await fs.readFile("/etc/wsl.conf", "utf8");
+  } catch {
+    // File doesn't exist yet
+  }
+
+  const lines = existing.split(/\r?\n/);
+  let bootSectionIdx = -1;
+  let systemdLineIdx = -1;
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed.toLowerCase() === "[boot]") {
+      bootSectionIdx = i;
+    }
+    if (bootSectionIdx !== -1 && i > bootSectionIdx) {
+      if (trimmed.startsWith("[") && i !== bootSectionIdx) {
+        break;
+      }
+      const [key] = trimmed.split("=");
+      if (key?.trim().toLowerCase() === "systemd") {
+        systemdLineIdx = i;
+        break;
+      }
+    }
+  }
+
+  let patched: string;
+  if (systemdLineIdx !== -1) {
+    lines[systemdLineIdx] = "systemd=true";
+    patched = lines.join("\n");
+  } else if (bootSectionIdx !== -1) {
+    lines.splice(bootSectionIdx + 1, 0, "systemd=true");
+    patched = lines.join("\n");
+  } else {
+    patched = (existing.trimEnd() ? `${existing.trimEnd()}\n\n` : "") + "[boot]\nsystemd=true\n";
+  }
+
+  const tmpPath = `/tmp/openclaw-wsl-conf-${process.pid}.tmp`;
+  try {
+    await fs.writeFile(tmpPath, patched, "utf8");
+    const result = await execFileUtf8("sudo", ["cp", tmpPath, "/etc/wsl.conf"]);
+    if (result.code !== 0) {
+      throw new Error(result.stderr || result.stdout || "sudo cp failed");
+    }
+    note(
+      "Updated /etc/wsl.conf with [boot] systemd=true.\nRun: wsl --shutdown (from PowerShell), then reopen your distro and rerun doctor.",
+      "Gateway (WSL)",
+    );
+  } catch (err) {
+    note(
+      `Failed to write /etc/wsl.conf: ${String(err)}\nManually add:\n  [boot]\n  systemd=true\n...to /etc/wsl.conf, then run: wsl --shutdown`,
+      "Gateway (WSL)",
+    );
+  } finally {
+    await fs.unlink(tmpPath).catch(() => undefined);
+  }
+}
+
 export async function maybeRepairGatewayDaemon(params: {
   cfg: OpenClawConfig;
   runtime: RuntimeEnv;
@@ -153,7 +244,31 @@ export async function maybeRepairGatewayDaemon(params: {
       const systemdAvailable = await isSystemdUserServiceAvailable().catch(() => false);
       if (!systemdAvailable) {
         const wsl = await isWSL();
-        note(renderSystemdUnavailableHints({ wsl }).join("\n"), "Gateway");
+        if (wsl) {
+          const alreadyEnabled = await checkWslSystemdEnabled();
+          if (alreadyEnabled) {
+            note(
+              "wsl.conf already has systemd=true but systemd is not running.\nRun: wsl --shutdown (from PowerShell), then reopen your distro.",
+              "Gateway (WSL)",
+            );
+            return;
+          }
+          note(
+            "WSL2 detected without systemd. The gateway requires systemd for background service operation.",
+            "Gateway (WSL)",
+          );
+          const shouldFix = await params.prompter.confirmSkipInNonInteractive({
+            message: "Enable systemd in /etc/wsl.conf? (requires sudo)",
+            initialValue: true,
+          });
+          if (shouldFix) {
+            await applyWslSystemdPatch();
+          } else {
+            note(renderSystemdUnavailableHints({ wsl: true }).join("\n"), "Gateway");
+          }
+          return;
+        }
+        note(renderSystemdUnavailableHints({ wsl: false }).join("\n"), "Gateway");
         return;
       }
     }

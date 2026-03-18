@@ -59,6 +59,50 @@ export function isWSL2Sync(deps: WslDetectionDeps = {}): boolean {
   }
 }
 
+const WSL_CONF_PATH = "/etc/wsl.conf";
+
+/**
+ * Check if /etc/wsl.conf already has [boot] systemd=true.
+ */
+export async function isWslSystemdEnabled(): Promise<boolean> {
+  try {
+    const content = await fs.readFile(WSL_CONF_PATH, "utf8");
+    // Simple INI check: look for systemd=true under [boot]
+    const bootMatch = content.match(/\[boot\][^[]*?systemd\s*=\s*true/is);
+    return bootMatch !== null;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Build the wsl.conf content needed to enable systemd.
+ * If the file already exists, appends [boot] section if missing.
+ */
+export async function buildWslConfPatch(): Promise<string> {
+  let existing = "";
+  try {
+    existing = await fs.readFile(WSL_CONF_PATH, "utf8");
+  } catch {
+    // File doesn't exist
+  }
+
+  if (!existing.trim()) {
+    return "[boot]\nsystemd=true\n";
+  }
+
+  // Check if [boot] section exists
+  const bootSectionMatch = existing.match(/^\[boot\]/im);
+  if (bootSectionMatch) {
+    // Add systemd=true after [boot] line
+    return existing.replace(/^(\[boot\])/im, "$1\nsystemd=true");
+  }
+
+  // Append [boot] section
+  const separator = existing.endsWith("\n") ? "\n" : "\n\n";
+  return `${existing}${separator}[boot]\nsystemd=true\n`;
+}
+
 export async function isWSL(deps: WslDetectionDeps = {}): Promise<boolean> {
   const shouldUseCache =
     deps.env === undefined && deps.platform === undefined && deps.readKernelRelease === undefined;

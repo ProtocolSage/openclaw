@@ -1,0 +1,90 @@
+// openclaw.json — verifier-relevant sections
+// Merge this into your existing config at ~/.openclaw/openclaw.json
+{
+  "agents": {
+    "defaults": {
+      // Primary agent model — Grok for all agent reasoning
+      "model": {
+        "primary": "xai/grok-4-1-fast-reasoning",
+      },
+
+      // Model allowlist + per-model params
+      "models": {
+        // ── Primary Agent ──
+        "xai/grok-4-1-fast-reasoning": {
+          "params": {},
+        },
+
+        // ── Verifier: Routine Checks (haiku-equivalent) ──
+        // Codex with fastMode for cheap/fast trajectory verification
+        // Covered by ChatGPT subscription via OAuth — no per-token cost
+        "openai-codex/gpt-5.4": {
+          "params": {
+            "fastMode": true,
+            // fastMode sets: reasoning.effort = "low", text.verbosity = "low"
+            // Perfect for structured JSON-only verification prompts
+          },
+        },
+
+        // ── Verifier: Deep Checks (sonnet-equivalent) ──
+        // Codex WITHOUT fastMode for full reasoning on escalated checks
+        // Still subscription-covered, but uses full reasoning effort
+        // Alternative: route deep checks to Grok (see llm-call notes)
+        "openai-codex/gpt-5.4": {
+          "params": {
+            "fastMode": false,
+          },
+        },
+      },
+    },
+  },
+
+  // ── Verifier-specific config ──
+  // Custom section — consumed by src/verifier/, not by OpenClaw core
+  "verifier": {
+    // Scan timing
+    "scanIntervalMins": 5,
+    "scanIntervalUnclearMins": 2,
+
+    // Cache
+    "cacheTtlMs": 150000,
+
+    // Drift thresholds (0-1 scale)
+    "softThreshold": 0.4,
+    "hardThreshold": 0.7,
+
+    // Calibration bounds
+    "calibration": {
+      "minThreshold": 0.25,
+      "maxThreshold": 0.85,
+      "decayAlpha": 0.3,
+    },
+
+    // Escalation
+    "escalation": {
+      "sonnetBudgetPerGoalPerHour": 3,
+      "cooldownMs": 60000,
+      "baseEscalationThreshold": 0.6,
+      "lcmUnavailableConfidenceDiscount": 0.7,
+    },
+
+    // Token budget
+    "tokenBudget": {
+      "toolInputTruncateChars": 120,
+      "auditWindowMaxEntries": 30,
+      "auditWindowMaxMinutes": 15,
+    },
+
+    // Model routing
+    "models": {
+      "routine": "openai-codex/gpt-5.4",
+      "routineParams": { "fastMode": true },
+      "deep": "openai-codex/gpt-5.4",
+      "deepParams": { "fastMode": false },
+      // Fallback if Codex OAuth is down or rate-limited
+      // Falls back to primary agent model — expensive but safe
+      "fallback": "xai/grok-4-1-fast-reasoning",
+      "fallbackParams": {},
+    },
+  },
+}

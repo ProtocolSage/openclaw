@@ -1,4 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { GoalManager } from "../../goals/manager.js";
+import { GoalStore } from "../../goals/store.js";
 
 const hoisted = vi.hoisted(() => {
   const spawnSubagentDirectMock = vi.fn();
@@ -23,7 +28,18 @@ vi.mock("../acp-spawn.js", () => ({
 const { createSessionsSpawnTool } = await import("./sessions-spawn-tool.js");
 
 describe("sessions_spawn tool", () => {
+  let store: GoalStore;
+  let manager: GoalManager;
+  let dbPath: string;
+
   beforeEach(() => {
+    store = new GoalStore();
+    dbPath = path.join(
+      os.tmpdir(),
+      `sessions-spawn-tool-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`,
+    );
+    store.open(dbPath);
+    manager = new GoalManager(store);
     hoisted.spawnSubagentDirectMock.mockReset().mockResolvedValue({
       status: "accepted",
       childSessionKey: "agent:main:subagent:1",
@@ -34,6 +50,15 @@ describe("sessions_spawn tool", () => {
       childSessionKey: "agent:codex:acp:1",
       runId: "run-acp",
     });
+  });
+
+  afterEach(() => {
+    store.close();
+    try {
+      fs.unlinkSync(dbPath);
+    } catch {
+      // ignore cleanup errors
+    }
   });
 
   it("uses subagent runtime by default", async () => {
@@ -47,6 +72,7 @@ describe("sessions_spawn tool", () => {
 
     const result = await tool.execute("call-1", {
       task: "build feature",
+      roleId: "reviewer",
       agentId: "main",
       model: "anthropic/claude-sonnet-4-6",
       thinking: "medium",
@@ -64,6 +90,7 @@ describe("sessions_spawn tool", () => {
     expect(hoisted.spawnSubagentDirectMock).toHaveBeenCalledWith(
       expect.objectContaining({
         task: "build feature",
+        roleId: "reviewer",
         agentId: "main",
         model: "anthropic/claude-sonnet-4-6",
         thinking: "medium",
@@ -96,6 +123,64 @@ describe("sessions_spawn tool", () => {
         workspaceDir: "/parent/workspace",
       }),
     );
+  });
+
+  it("links delegated tasks to the spawned child session", async () => {
+    const goal = manager.createGoal({
+      agentId: "main",
+      ownerSessionKey: "agent:main:main",
+      title: "Ship 1B",
+    });
+    const task = manager.createTask({
+      goalId: goal.id,
+      agentId: "main",
+      title: "Delegate prompt wiring",
+      description: "Have a subagent inspect the runtime seam",
+    });
+    const tool = createSessionsSpawnTool({
+      goalManager: manager,
+      agentSessionKey: "agent:main:main",
+    });
+
+    const result = await tool.execute("call-task-id", {
+      task: "Inspect the runtime seam and report back.",
+      taskId: task.id,
+    });
+
+    expect(result.details).toMatchObject({
+      status: "accepted",
+      childSessionKey: "agent:main:subagent:1",
+    });
+    expect(hoisted.spawnSubagentDirectMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task: expect.stringContaining(`[Delegated Task Context] Task ${task.id}: ${task.title}`),
+      }),
+      expect.any(Object),
+    );
+    expect(manager.getTask(task.id)).toMatchObject({
+      status: "delegated",
+      assignedSessionKey: "agent:main:subagent:1",
+      result: "Delegated via sessions_spawn",
+    });
+    expect(manager.listAttempts(task.id)).toHaveLength(1);
+  });
+
+  it("returns an error when taskId does not exist", async () => {
+    const tool = createSessionsSpawnTool({
+      goalManager: manager,
+      agentSessionKey: "agent:main:main",
+    });
+
+    const result = await tool.execute("call-missing-task", {
+      task: "Inspect the runtime seam and report back.",
+      taskId: "task-missing",
+    });
+
+    expect(result.details).toMatchObject({
+      status: "error",
+      error: "Task not found: task-missing",
+    });
+    expect(hoisted.spawnSubagentDirectMock).not.toHaveBeenCalled();
   });
 
   it("routes to ACP runtime when runtime=acp", async () => {

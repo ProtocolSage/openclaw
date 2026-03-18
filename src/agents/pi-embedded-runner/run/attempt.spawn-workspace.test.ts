@@ -28,6 +28,8 @@ const hoisted = vi.hoisted(() => {
   const resolveSandboxContextMock = vi.fn();
   const subscribeEmbeddedPiSessionMock = vi.fn();
   const acquireSessionWriteLockMock = vi.fn();
+  const buildEmbeddedSystemPromptMock = vi.fn((_params?: unknown) => "system prompt");
+  const auditCitationMissMock = vi.fn((_args?: unknown) => false);
   const sessionManager = {
     getLeafEntry: vi.fn(() => null),
     branch: vi.fn(),
@@ -42,6 +44,8 @@ const hoisted = vi.hoisted(() => {
     resolveSandboxContextMock,
     subscribeEmbeddedPiSessionMock,
     acquireSessionWriteLockMock,
+    buildEmbeddedSystemPromptMock,
+    auditCitationMissMock,
     sessionManager,
   };
 });
@@ -182,8 +186,12 @@ vi.mock("../../system-prompt-report.js", () => ({
 
 vi.mock("../system-prompt.js", () => ({
   applySystemPromptOverrideToSession: () => {},
-  buildEmbeddedSystemPrompt: () => "system prompt",
+  buildEmbeddedSystemPrompt: (args: unknown) => hoisted.buildEmbeddedSystemPromptMock(args),
   createSystemPromptOverride: (prompt: string) => () => prompt,
+}));
+
+vi.mock("../../grounding/citation-audit.js", () => ({
+  auditCitationMiss: (args: unknown) => hoisted.auditCitationMissMock(args),
 }));
 
 vi.mock("../extra-params.js", () => ({
@@ -214,6 +222,7 @@ vi.mock("../../model-selection.js", async (importOriginal) => {
 });
 
 const { runEmbeddedAttempt } = await import("./attempt.js");
+const { GROUNDING_POLICY } = await import("../../grounding/policy.js");
 
 type MutableSession = {
   sessionId: string;
@@ -269,6 +278,8 @@ function resetEmbeddedAttemptHarness(
   hoisted.acquireSessionWriteLockMock.mockReset().mockResolvedValue({
     release: async () => {},
   });
+  hoisted.buildEmbeddedSystemPromptMock.mockReset().mockReturnValue("system prompt");
+  hoisted.auditCitationMissMock.mockReset().mockReturnValue(false);
   hoisted.sessionManager.getLeafEntry.mockReset().mockReturnValue(null);
   hoisted.sessionManager.branch.mockReset();
   hoisted.sessionManager.resetLeaf.mockReset();
@@ -528,6 +539,134 @@ describe("runEmbeddedAttempt cache-ttl tracking after compaction", () => {
         timestamp: expect.any(Number),
       }),
     );
+  });
+});
+
+describe("runEmbeddedAttempt active goals prompt summary", () => {
+  const tempPaths: string[] = [];
+
+  beforeEach(() => {
+    resetEmbeddedAttemptHarness({
+      subscribeImpl: createSubscriptionMock,
+    });
+  });
+
+  afterEach(async () => {
+    await cleanupTempPaths(tempPaths);
+  });
+
+  it("passes a compact active goals summary into the system prompt", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-goals-workspace-"));
+    const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-goals-agent-"));
+    const sessionFile = path.join(workspaceDir, "session.jsonl");
+    tempPaths.push(workspaceDir, agentDir);
+    await fs.writeFile(sessionFile, "", "utf8");
+
+    const { GoalStore } = await import("../../../goals/store.js");
+    const { GoalManager } = await import("../../../goals/manager.js");
+    const goalStore = new GoalStore();
+    goalStore.open(path.join(agentDir, "goals.db"));
+    const goalManager = new GoalManager(goalStore);
+    const goal = goalManager.createGoal({
+      agentId: "main",
+      ownerSessionKey: "agent:main:main",
+      title: "Ship Pass 1B",
+      priority: 5,
+    });
+    goalManager.updateGoal(goal.id, { status: "active" });
+    goalManager.createTask({
+      goalId: goal.id,
+      agentId: "main",
+      title: "Wire active goals into runtime",
+    });
+    goalStore.close();
+
+    hoisted.createAgentSessionMock.mockImplementation(async () => ({
+      session: createDefaultEmbeddedSession(),
+    }));
+
+    const result = await runEmbeddedAttempt({
+      sessionId: "embedded-session",
+      sessionKey: "agent:main:main",
+      sessionFile,
+      workspaceDir,
+      agentDir,
+      config: {},
+      prompt: "hello",
+      timeoutMs: 10_000,
+      runId: "run-active-goals",
+      provider: "openai",
+      modelId: "gpt-test",
+      model: testModel,
+      authStorage: {} as AuthStorage,
+      modelRegistry: {} as ModelRegistry,
+      thinkLevel: "off",
+      senderIsOwner: true,
+      disableMessageTool: true,
+    });
+
+    expect(result.promptError).toBeNull();
+    expect(hoisted.buildEmbeddedSystemPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extraSystemPrompt: expect.stringContaining("## Active Goals"),
+      }),
+    );
+    expect(hoisted.buildEmbeddedSystemPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extraSystemPrompt: expect.stringContaining("Ship Pass 1B"),
+      }),
+    );
+    expect(hoisted.buildEmbeddedSystemPromptMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        extraSystemPrompt: expect.stringContaining(GROUNDING_POLICY),
+      }),
+    );
+  });
+
+  it("runs post-turn citation audit using tool names from the current turn", async () => {
+    const workspaceDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-grounding-workspace-"));
+    const agentDir = await fs.mkdtemp(path.join(os.tmpdir(), "openclaw-grounding-agent-"));
+    const sessionFile = path.join(workspaceDir, "session.jsonl");
+    tempPaths.push(workspaceDir, agentDir);
+    await fs.writeFile(sessionFile, "", "utf8");
+
+    resetEmbeddedAttemptHarness({
+      subscribeImpl: () => ({
+        ...createSubscriptionMock(),
+        assistantTexts: ["The config is at src/config/config.ts."],
+        toolMetas: [{ toolName: "read" }],
+      }),
+    });
+    hoisted.createAgentSessionMock.mockImplementation(async () => ({
+      session: createDefaultEmbeddedSession(),
+    }));
+    hoisted.auditCitationMissMock.mockReturnValue(true);
+
+    const result = await runEmbeddedAttempt({
+      sessionId: "embedded-session",
+      sessionKey: "agent:main:main",
+      sessionFile,
+      workspaceDir,
+      agentDir,
+      config: {},
+      prompt: "hello",
+      timeoutMs: 10_000,
+      runId: "run-grounding-audit",
+      provider: "openai",
+      modelId: "gpt-test",
+      model: testModel,
+      authStorage: {} as AuthStorage,
+      modelRegistry: {} as ModelRegistry,
+      thinkLevel: "off",
+      senderIsOwner: true,
+      disableMessageTool: true,
+    });
+
+    expect(result.promptError).toBeNull();
+    expect(hoisted.auditCitationMissMock).toHaveBeenCalledWith({
+      assistantText: "The config is at src/config/config.ts.",
+      toolNamesCalled: ["read"],
+    });
   });
 });
 

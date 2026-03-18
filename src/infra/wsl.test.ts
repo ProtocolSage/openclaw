@@ -14,7 +14,15 @@ vi.mock("node:fs/promises", () => ({
   },
 }));
 
-const { isWSLEnv, isWSLSync, isWSL2Sync, isWSL, resetWSLStateForTests } = await import("./wsl.js");
+const {
+  isWSLEnv,
+  isWSLSync,
+  isWSL2Sync,
+  isWSL,
+  resetWSLStateForTests,
+  isWslSystemdEnabled,
+  buildWslConfPatch,
+} = await import("./wsl.js");
 
 describe("wsl detection", () => {
   let envSnapshot: ReturnType<typeof captureEnv>;
@@ -152,5 +160,57 @@ describe("wsl detection", () => {
   it("returns false for async detection on non-linux platforms without reading osrelease", async () => {
     await expect(isWSL({ env: {}, platform: "win32" })).resolves.toBe(false);
     expect(readFileMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("isWslSystemdEnabled", () => {
+  beforeEach(() => {
+    readFileMock.mockReset();
+  });
+
+  it("returns true when wsl.conf has [boot] systemd=true", async () => {
+    readFileMock.mockResolvedValueOnce("[boot]\nsystemd=true\n");
+    await expect(isWslSystemdEnabled()).resolves.toBe(true);
+  });
+
+  it("returns false when wsl.conf has no systemd setting", async () => {
+    readFileMock.mockResolvedValueOnce("[network]\ngenerateHosts=true\n");
+    await expect(isWslSystemdEnabled()).resolves.toBe(false);
+  });
+
+  it("returns false when wsl.conf does not exist", async () => {
+    readFileMock.mockRejectedValueOnce(new Error("ENOENT"));
+    await expect(isWslSystemdEnabled()).resolves.toBe(false);
+  });
+
+  it("returns false when systemd=false", async () => {
+    readFileMock.mockResolvedValueOnce("[boot]\nsystemd=false\n");
+    await expect(isWslSystemdEnabled()).resolves.toBe(false);
+  });
+});
+
+describe("buildWslConfPatch", () => {
+  beforeEach(() => {
+    readFileMock.mockReset();
+  });
+
+  it("creates full conf when file does not exist", async () => {
+    readFileMock.mockRejectedValueOnce(new Error("ENOENT"));
+    const patch = await buildWslConfPatch();
+    expect(patch).toBe("[boot]\nsystemd=true\n");
+  });
+
+  it("appends [boot] section when missing", async () => {
+    readFileMock.mockResolvedValueOnce("[network]\ngenerateHosts=true\n");
+    const patch = await buildWslConfPatch();
+    expect(patch).toContain("[network]");
+    expect(patch).toContain("[boot]\nsystemd=true");
+  });
+
+  it("adds systemd=true under existing [boot] section", async () => {
+    readFileMock.mockResolvedValueOnce("[boot]\ncommand=echo hi\n");
+    const patch = await buildWslConfPatch();
+    expect(patch).toContain("[boot]\nsystemd=true");
+    expect(patch).toContain("command=echo hi");
   });
 });

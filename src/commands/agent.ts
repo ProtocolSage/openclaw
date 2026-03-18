@@ -88,6 +88,7 @@ import { applyModelOverrideToSessionEntry } from "../sessions/model-overrides.js
 import { resolveSendPolicy } from "../sessions/send-policy.js";
 import { emitSessionTranscriptUpdate } from "../sessions/transcript-events.js";
 import { resolveMessageChannel } from "../utils/message-channel.js";
+import { getGatewayVerifierServices } from "../verifier/gateway-wiring.js";
 import { deliverAgentCommandResult } from "./agent/delivery.js";
 import { resolveAgentRunContext } from "./agent/run-context.js";
 import { updateSessionStoreAfterAgentRun } from "./agent/session-store.js";
@@ -496,6 +497,7 @@ function runAgentAttempt(params: {
     agentDir: params.agentDir,
     allowTransientCooldownProbe: params.allowTransientCooldownProbe,
     onAgentEvent: params.onAgentEvent,
+    verifierServices: getGatewayVerifierServices(),
     bootstrapPromptWarningSignaturesSeen,
     bootstrapPromptWarningSignature,
   });

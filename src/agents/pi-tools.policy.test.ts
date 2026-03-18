@@ -204,6 +204,54 @@ describe("resolveSubagentToolPolicy depth awareness", () => {
     expect(isToolAllowedByPolicyName("subagents", policy)).toBe(false);
   });
 
+  it("applies stored specialization-role deny lists to spawned subagent sessions", () => {
+    const storePath = path.join(
+      os.tmpdir(),
+      `openclaw-subagent-role-policy-${Date.now()}-${Math.random().toString(16).slice(2)}.json`,
+    );
+    fs.mkdirSync(path.dirname(storePath), { recursive: true });
+    fs.writeFileSync(
+      storePath,
+      JSON.stringify(
+        {
+          "agent:main:subagent:reviewer": {
+            sessionId: "reviewer-session",
+            updatedAt: Date.now(),
+            spawnDepth: 1,
+            subagentRole: "orchestrator",
+            subagentControlScope: "children",
+            agentRoleId: "reviewer",
+          },
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    const cfg = {
+      ...baseCfg,
+      session: {
+        store: storePath,
+      },
+      agents: {
+        ...baseCfg.agents,
+        roles: [
+          {
+            roleId: "reviewer",
+            toolPolicy: {
+              deny: ["exec", "apply_patch"],
+            },
+          },
+        ],
+      },
+    } as unknown as OpenClawConfig;
+
+    const policy = resolveSubagentToolPolicyForSession(cfg, "agent:main:subagent:reviewer");
+    expect(isToolAllowedByPolicyName("exec", policy)).toBe(false);
+    expect(isToolAllowedByPolicyName("apply_patch", policy)).toBe(false);
+    expect(isToolAllowedByPolicyName("read", policy)).toBe(true);
+  });
+
   it("defaults to leaf behavior when no depth is provided", () => {
     const policy = resolveSubagentToolPolicy(baseCfg);
     // Default depth=1, maxSpawnDepth=2 → orchestrator

@@ -1,12 +1,22 @@
 import { z } from "zod";
 import { AgentDefaultsSchema } from "./zod-schema.agent-defaults.js";
-import { AgentEntrySchema } from "./zod-schema.agent-runtime.js";
+import { AgentEntrySchema, ToolPolicySchema } from "./zod-schema.agent-runtime.js";
 import { TranscribeAudioSchema } from "./zod-schema.core.js";
+
+const AgentRoleSchema = z
+  .object({
+    roleId: z.string(),
+    persona: z.string().optional(),
+    toolPolicy: ToolPolicySchema,
+    defaultModel: z.string().optional(),
+  })
+  .strict();
 
 export const AgentsSchema = z
   .object({
     defaults: z.lazy(() => AgentDefaultsSchema).optional(),
     list: z.array(AgentEntrySchema).optional(),
+    roles: z.array(AgentRoleSchema).optional(),
   })
   .strict()
   .optional();

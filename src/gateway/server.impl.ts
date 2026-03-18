@@ -1,5 +1,10 @@
+import fs from "node:fs";
 import path from "node:path";
-import { resolveAgentWorkspaceDir, resolveDefaultAgentId } from "../agents/agent-scope.js";
+import {
+  resolveAgentDir,
+  resolveAgentWorkspaceDir,
+  resolveDefaultAgentId,
+} from "../agents/agent-scope.js";
 import { getActiveEmbeddedRunCount } from "../agents/pi-embedded-runner/runs.js";
 import { registerSkillsChangeListener } from "../agents/skills/refresh.js";
 import { initSubagentRegistry } from "../agents/subagent-registry.js";
@@ -21,6 +26,8 @@ import {
 import { formatConfigIssueLines } from "../config/issue-format.js";
 import { applyPluginAutoEnable } from "../config/plugin-auto-enable.js";
 import { resolveMainSessionKey } from "../config/sessions.js";
+import { GoalManager } from "../goals/manager.js";
+import { GoalStore } from "../goals/store.js";
 import { clearAgentRunContext, onAgentEvent } from "../infra/agent-events.js";
 import {
   ensureControlUiAssetsBuilt,
@@ -33,6 +40,7 @@ import { logAcceptedEnvOption } from "../infra/env.js";
 import { createExecApprovalForwarder } from "../infra/exec-approval-forwarder.js";
 import { onHeartbeatEvent } from "../infra/heartbeat-events.js";
 import { startHeartbeatRunner, type HeartbeatRunner } from "../infra/heartbeat-runner.js";
+import { requestHeartbeatNow } from "../infra/heartbeat-wake.js";
 import { getMachineDisplayName } from "../infra/machine-name.js";
 import { ensureOpenClawCliOnPath } from "../infra/path-env.js";
 import { setGatewaySigusr1RestartPolicy, setPreRestartDeferralCheck } from "../infra/restart.js";
@@ -43,6 +51,11 @@ import {
 } from "../infra/skills-remote.js";
 import { enqueueSystemEvent } from "../infra/system-events.js";
 import { scheduleGatewayUpdateCheck } from "../infra/update-startup.js";
+import {
+  handleHorizonScannerCronEvent,
+  registerHorizonScannerCron,
+} from "../initiative/horizon.js";
+import { NudgeEngine } from "../initiative/nudge.js";
 import { startDiagnosticHeartbeat, stopDiagnosticHeartbeat } from "../logging/diagnostic.js";
 import { createSubsystemLogger, runtimeForLogger } from "../logging/subsystem.js";
 import { getGlobalHookRunner, runGlobalGatewayStopSafely } from "../plugins/hook-runner-global.js";
@@ -63,6 +76,13 @@ import {
   prepareSecretsRuntimeSnapshot,
   resolveCommandSecretsFromActiveRuntimeSnapshot,
 } from "../secrets/runtime.js";
+import { initializeVerifier, setGatewayVerifierServices } from "../verifier/gateway-wiring.js";
+import { createVerifierCallModel } from "../verifier/model-transport.js";
+import { handleVerifierCronEvent, registerVerifierCron } from "../verifier/periodic-scan.js";
+import {
+  createGatewayAuditReader,
+  createGatewayFeedbackReader,
+} from "../verifier/store-adapters.js";
 import { runOnboardingWizard } from "../wizard/onboarding.js";
 import { createAuthRateLimiter, type AuthRateLimiter } from "./auth-rate-limit.js";
 import { startChannelHealthMonitor } from "./channel-health-monitor.js";
@@ -466,6 +486,76 @@ export async function startGatewayServer(
   initSubagentRegistry();
   const defaultAgentId = resolveDefaultAgentId(cfgAtStart);
   const defaultWorkspaceDir = resolveAgentWorkspaceDir(cfgAtStart, defaultAgentId);
+  const defaultAgentDir = resolveAgentDir(cfgAtStart, defaultAgentId);
+  fs.mkdirSync(defaultAgentDir, { recursive: true });
+  const goalStore = new GoalStore();
+  goalStore.open(path.join(defaultAgentDir, "goals.db"));
+  const goalManager = new GoalManager(goalStore);
+  const initiativeNudgeEngine = new NudgeEngine();
+  const resolveInitiativeNudgePolicy = (cfg: OpenClawConfig) => ({
+    maxNudgesPerHour: cfg.initiative?.nudgePolicy?.maxNudgesPerHour ?? 2,
+    quietHoursStart: cfg.initiative?.nudgePolicy?.quietHoursStart ?? 22,
+    quietHoursEnd: cfg.initiative?.nudgePolicy?.quietHoursEnd ?? 8,
+    deduplicateWindowMs: cfg.initiative?.nudgePolicy?.deduplicateWindowMs ?? 7_200_000,
+    activeChannelWindowHours: cfg.initiative?.nudgePolicy?.activeChannelWindowHours ?? 4,
+  });
+  const sendInitiativeToSession = async (sessionKey: string, message: string) => {
+    enqueueSystemEvent(message, { sessionKey });
+    requestHeartbeatNow({ reason: "initiative-horizon", sessionKey });
+  };
+  const onInitiativeCronEvent = (
+    evt: import("../cron/service.js").CronEvent,
+    cfg: OpenClawConfig,
+  ) => {
+    void handleHorizonScannerCronEvent({
+      event: evt,
+      agentId: defaultAgentId,
+      goalManager,
+      nudgeEngine: initiativeNudgeEngine,
+      nudgePolicy: resolveInitiativeNudgePolicy(cfg),
+      sendToSession: sendInitiativeToSession,
+      onWarning: (msg) => logCron.warn(msg),
+    }).catch((err) => logCron.error(`initiative horizon scan failed: ${String(err)}`));
+  };
+
+  // ── Trajectory verifier ──
+  const verifierCfg = cfgAtStart.verifier;
+  const verifier = initializeVerifier({
+    goalManager: {
+      async getActiveGoals() {
+        return goalManager.listGoals(defaultAgentId, "active").map((g) => ({
+          id: g.id,
+          title: g.title,
+          status: g.status as string,
+          deadlineMs: g.deadlineMs ?? undefined,
+          priority: String(g.priority),
+        }));
+      },
+      async getTasksForGoal(goalId: string) {
+        return goalManager.listTasks({ goalId }).map((t) => ({
+          title: t.title,
+          status: t.status as string,
+          lastUpdatedAt: t.completedAt ?? t.createdAt,
+        }));
+      },
+    },
+    auditStore: createGatewayAuditReader(path.join(defaultAgentDir, "audit.db")),
+    feedbackStore: createGatewayFeedbackReader(path.join(defaultAgentDir, "feedback.db")),
+    // Cron service not yet created; verifier cron registered after cronState is built below.
+    sendToSession: (msg, _level) => {
+      enqueueSystemEvent(msg, { sessionKey: resolveMainSessionKey(cfgAtStart) });
+      requestHeartbeatNow({ reason: "verifier", sessionKey: resolveMainSessionKey(cfgAtStart) });
+    },
+    callModel: createVerifierCallModel({
+      agentDir: defaultAgentDir,
+      config: cfgAtStart,
+    }),
+    userConfig: verifierCfg
+      ? { ...verifierCfg, enabled: verifierCfg.enabled ?? false }
+      : { enabled: false },
+  });
+  setGatewayVerifierServices(verifier.services);
+
   const baseMethods = listGatewayMethods();
   const emptyPluginRegistry = createEmptyPluginRegistry();
   const { pluginRegistry, gatewayMethods: baseGatewayMethods } = minimalTestGateway
@@ -652,8 +742,17 @@ export async function startGatewayServer(
     cfg: cfgAtStart,
     deps,
     broadcast,
+    onEvent: (evt) => {
+      onInitiativeCronEvent(evt, loadConfig());
+      void handleVerifierCronEvent(evt, verifier.context).catch((err) =>
+        logCron.error(`verifier periodic scan failed: ${String(err)}`),
+      );
+    },
   });
   let { cron, storePath: cronStorePath } = cronState;
+
+  // Deferred verifier cron registration (cron service now available).
+  void registerVerifierCron(cron, verifier.context.config);
 
   const { getRuntimeSnapshot, startChannels, startChannel, stopChannel, markChannelLoggedOut } =
     channelManager;
@@ -771,6 +870,9 @@ export async function startGatewayServer(
       });
 
   if (!minimalTestGateway) {
+    void registerHorizonScannerCron({ cfg: cfgAtStart, cron }).catch((err) =>
+      logCron.error(`failed to register horizon scanner: ${String(err)}`),
+    );
     void cron.start().catch((err) => logCron.error(`failed to start: ${String(err)}`));
   }
 
@@ -961,6 +1063,12 @@ export async function startGatewayServer(
         const { applyHotReload, requestGatewayRestart } = createGatewayReloadHandlers({
           deps,
           broadcast,
+          onCronEvent: (evt) => {
+            onInitiativeCronEvent(evt, loadConfig());
+            void handleVerifierCronEvent(evt, verifier.context).catch((err) =>
+              logCron.error(`verifier periodic scan failed: ${String(err)}`),
+            );
+          },
           getState: () => ({
             hooksConfig,
             hookClientIpConfig,
@@ -1083,6 +1191,7 @@ export async function startGatewayServer(
       browserAuthRateLimiter.dispose();
       channelHealthMonitor?.stop();
       clearSecretsRuntimeSnapshot();
+      goalStore.close();
       await close(opts);
     },
   };
