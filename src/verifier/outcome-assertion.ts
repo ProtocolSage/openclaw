@@ -191,9 +191,46 @@ export function wrapToolWithOutcomeAssertion(
   const wrappedTool: AnyAgentTool = {
     ...tool,
     execute: async (toolCallId, params, signal, onUpdate) => {
-      const result = await execute(toolCallId, params, signal, onUpdate);
+      // Extract command for context (needed in both success and error paths)
+      const command =
+        typeof params === "object" && params !== null
+          ? ((params as Record<string, unknown>).command as string | undefined)
+          : undefined;
 
-      // Extract exec details from result
+      let result: Awaited<ReturnType<typeof execute>>;
+      try {
+        result = await execute(toolCallId, params, signal, onUpdate);
+      } catch (err) {
+        // Exec tool rejects on non-zero exit — classify the thrown error as a failure
+        const errMsg = err instanceof Error ? err.message : String(err);
+        const assertion: OutcomeAssertion = {
+          classification: "fail",
+          evidence: `exec threw: ${errMsg.slice(0, 120)}`,
+          toolName,
+          at: Date.now(),
+        };
+
+        // Check for known failure patterns in the error message
+        for (const { pattern, label } of FAILURE_PATTERNS) {
+          if (pattern.test(errMsg)) {
+            assertion.evidence += ` (${label})`;
+            break;
+          }
+        }
+
+        const groundTruth = formatGroundTruth(assertion, command);
+        log.warn(groundTruth);
+
+        const goals = await context.goalManager.getActiveGoals();
+        if (goals.length > 0) {
+          context.cache.invalidate(goals[0].id);
+        }
+        context.sendToSession(groundTruth, "nudge" as EscalationLevel);
+
+        throw err;
+      }
+
+      // Extract exec details from resolved result
       const details = extractExecDetails(result?.details ?? result);
       if (!details) {
         return result;
@@ -201,12 +238,6 @@ export function wrapToolWithOutcomeAssertion(
 
       const assertion = classifyExecOutcome(details);
       assertion.toolName = toolName;
-
-      // Extract command for context
-      const command =
-        typeof params === "object" && params !== null
-          ? ((params as Record<string, unknown>).command as string | undefined)
-          : undefined;
 
       if (assertion.classification === "fail") {
         const groundTruth = formatGroundTruth(assertion, command);

@@ -236,6 +236,33 @@ describe("wrapToolWithOutcomeAssertion", () => {
     expect(context.sendToSession).not.toHaveBeenCalled();
   });
 
+  it("catches thrown errors and classifies as failure", async () => {
+    const tool = makeExecTool();
+    tool.execute = vi.fn().mockRejectedValue(new Error("3 failed | 10 passed"));
+    const invalidateSpy = vi.fn();
+    const context = makeContext({
+      cache: {
+        ...makeContext().cache,
+        invalidate: invalidateSpy,
+      },
+    });
+    const wrapped = wrapToolWithOutcomeAssertion(tool, context);
+
+    await expect(
+      wrapped.execute("call-1", { command: "pnpm test" }, undefined, undefined),
+    ).rejects.toThrow("3 failed");
+
+    expect(context.sendToSession).toHaveBeenCalledWith(
+      expect.stringContaining("[verifier:outcome] FAILED"),
+      "nudge",
+    );
+    expect(context.sendToSession).toHaveBeenCalledWith(
+      expect.stringContaining("test failures detected"),
+      "nudge",
+    );
+    expect(invalidateSpy).toHaveBeenCalledWith("g1");
+  });
+
   it("includes command in ground-truth message", async () => {
     const tool = makeExecTool({
       details: { status: "failed", exitCode: 2, aggregated: "ELIFECYCLE" },
