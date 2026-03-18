@@ -10,6 +10,7 @@ import { getPluginToolMeta } from "../plugins/tools.js";
 import { isSubagentSessionKey } from "../routing/session-key.js";
 import { resolveGatewayMessageChannel } from "../utils/message-channel.js";
 import { wrapToolWithInlineGate } from "../verifier/inline-gate.js";
+import { wrapToolWithOutcomeAssertion } from "../verifier/outcome-assertion.js";
 import type { VerifierContext } from "../verifier/types.js";
 import { resolveAgentConfig } from "./agent-scope.js";
 import { createApplyPatchTool } from "./apply-patch.js";
@@ -641,9 +642,14 @@ export function createOpenClawCodingTools(options?: {
         wrapToolWithInlineGate(tool, options.verifierContext as VerifierContext),
       )
     : withAudit;
-  const withAbort = options?.abortSignal
-    ? withGate.map((tool) => wrapToolWithAbortSignal(tool, options.abortSignal))
+  const withOutcome = options?.verifierContext
+    ? withGate.map((tool) =>
+        wrapToolWithOutcomeAssertion(tool, options.verifierContext as VerifierContext),
+      )
     : withGate;
+  const withAbort = options?.abortSignal
+    ? withOutcome.map((tool) => wrapToolWithAbortSignal(tool, options.abortSignal))
+    : withOutcome;
 
   // NOTE: Keep canonical (lowercase) tool names here.
   // pi-ai's Anthropic OAuth transport remaps tool names to Claude Code-style names
