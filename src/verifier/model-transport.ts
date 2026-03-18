@@ -28,6 +28,41 @@ function parseModelRef(modelRef: string): { provider: string; modelId: string } 
   };
 }
 
+function getStreamErrorMessage(event: unknown): string {
+  const record = event as Record<string, unknown>;
+
+  if (typeof record.errorMessage === "string") {
+    return record.errorMessage;
+  }
+
+  if (typeof record.error === "string") {
+    return record.error;
+  }
+
+  if (record.error && typeof record.error === "object") {
+    const message = (record.error as { message?: unknown }).message;
+    if (typeof message === "string") {
+      return message;
+    }
+  }
+
+  return "Unknown stream error";
+}
+
+function getStreamText(event: unknown): string | null {
+  const record = event as Record<string, unknown>;
+
+  if (typeof record.text === "string") {
+    return record.text;
+  }
+
+  if (typeof record.delta === "string") {
+    return record.delta;
+  }
+
+  return null;
+}
+
 /**
  * Creates a real ModelCallFn that resolves model refs via the pi-ai model
  * registry and collects streamed tokens into a single response string.
@@ -62,10 +97,26 @@ export function createVerifierCallModel(opts: CreateCallModelOpts): ModelCallFn 
     });
 
     let content = "";
-    for await (const event of stream as AsyncIterable<{ type: string; text?: string }>) {
-      if (event.type === "text" && event.text) {
-        content += event.text;
+    for await (const event of stream) {
+      const eventType = (event as { type?: string }).type;
+
+      if (eventType === "error") {
+        const errorMessage = getStreamErrorMessage(event);
+        log.error("Verifier stream error", {
+          error: errorMessage,
+          modelRef,
+        });
+        throw new Error(`Stream error: ${errorMessage}`);
       }
+
+      const text = getStreamText(event);
+      if (text) {
+        content += text;
+      }
+    }
+
+    if (content === "") {
+      log.warn(`Verifier call to ${modelRef} produced empty content`);
     }
 
     return { content };

@@ -5,7 +5,12 @@
 // No new transport -- uses OpenClaw's existing model call infrastructure.
 
 import { createSubsystemLogger } from "../logging/subsystem.js";
-import { buildRoutinePrompt, buildDeepPrompt } from "./prompts.js";
+import {
+  buildRoutinePrompt,
+  buildDeepPrompt,
+  parseRoutineResponse,
+  parseDeepResponse,
+} from "./prompts.js";
 import type {
   LlmCallFn,
   VerifierCheckLevel,
@@ -14,11 +19,8 @@ import type {
   VerifierVerdict,
   RoutineVerdict,
   DeepVerdict,
-  Alignment,
-  Severity,
-  DeepAction,
 } from "./types.js";
-import { VERIFIER_SCHEMA_VERSION, LCM_UNAVAILABLE_CONFIDENCE_DISCOUNT } from "./types.js";
+import { VERIFIER_SCHEMA_VERSION } from "./types.js";
 
 const log = createSubsystemLogger("verifier");
 
@@ -31,103 +33,7 @@ export type ModelCallFn = (
   params?: Record<string, unknown>,
 ) => Promise<{ content: string }>;
 
-// ── Response parsing ──
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(Math.max(value, min), max);
-}
-
-const VALID_ALIGNMENTS: Set<string> = new Set(["yes", "no", "unclear"]);
-const VALID_SEVERITIES: Set<string> = new Set(["low", "medium", "high"]);
-const VALID_DEEP_ACTIONS: Set<string> = new Set(["proceed", "modify", "block"]);
-
-function extractJson(raw: string): string {
-  return raw.replace(/```json|```/g, "").trim();
-}
-
-export function parseRoutineResponse(raw: string): RoutineVerdict | null {
-  try {
-    const parsed: unknown = JSON.parse(extractJson(raw));
-    if (typeof parsed !== "object" || parsed === null) {
-      return null;
-    }
-
-    const obj = parsed as Record<string, unknown>;
-
-    if (obj.schemaVersion !== undefined && obj.schemaVersion !== VERIFIER_SCHEMA_VERSION) {
-      return null; // schema mismatch -> discard, re-evaluate
-    }
-
-    if (typeof obj.aligned !== "string" || !VALID_ALIGNMENTS.has(obj.aligned)) {
-      return null;
-    }
-    if (typeof obj.severity !== "string" || !VALID_SEVERITIES.has(obj.severity)) {
-      return null;
-    }
-    if (typeof obj.confidence !== "number") {
-      return null;
-    }
-    if (typeof obj.reason !== "string") {
-      return null;
-    }
-
-    return {
-      schemaVersion: VERIFIER_SCHEMA_VERSION,
-      aligned: obj.aligned as Alignment,
-      confidence: clamp(obj.confidence, 0, 1),
-      reason: obj.reason,
-      severity: obj.severity as Severity,
-    };
-  } catch {
-    return null;
-  }
-}
-
-export function parseDeepResponse(raw: string, lcmAvailable: boolean): DeepVerdict | null {
-  try {
-    const parsed: unknown = JSON.parse(extractJson(raw));
-    if (typeof parsed !== "object" || parsed === null) {
-      return null;
-    }
-
-    const obj = parsed as Record<string, unknown>;
-
-    if (obj.schemaVersion !== undefined && obj.schemaVersion !== VERIFIER_SCHEMA_VERSION) {
-      return null;
-    }
-
-    if (typeof obj.verdict !== "string" || !VALID_DEEP_ACTIONS.has(obj.verdict)) {
-      return null;
-    }
-    if (typeof obj.confidence !== "number") {
-      return null;
-    }
-    if (typeof obj.reason !== "string") {
-      return null;
-    }
-
-    let confidence = clamp(obj.confidence, 0, 1);
-
-    // Apply LCM-unavailable discount
-    if (!lcmAvailable) {
-      confidence *= LCM_UNAVAILABLE_CONFIDENCE_DISCOUNT;
-    }
-
-    // Validate suggestedCorrection exists as string or null
-    const suggestedCorrection =
-      typeof obj.suggestedCorrection === "string" ? obj.suggestedCorrection : null;
-
-    return {
-      schemaVersion: VERIFIER_SCHEMA_VERSION,
-      verdict: obj.verdict as DeepAction,
-      confidence,
-      reason: obj.reason,
-      suggestedCorrection,
-    };
-  } catch {
-    return null;
-  }
-}
+export { parseRoutineResponse, parseDeepResponse };
 
 // ── Parse failure fallback ──
 // If the model returns garbage, default to "unclear" with low confidence.

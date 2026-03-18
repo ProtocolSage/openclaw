@@ -122,6 +122,10 @@ export interface ParseSonnetResponseOptions {
   lcmAvailable?: boolean;
 }
 
+interface ParseHaikuResponseOptions {
+  allowMissingSchemaVersion?: boolean;
+}
+
 export function truncateToolInput(input: string, maxChars: number): string {
   if (maxChars <= 0) {
     return "";
@@ -129,8 +133,8 @@ export function truncateToolInput(input: string, maxChars: number): string {
   if (input.length <= maxChars) {
     return input;
   }
-  if (maxChars === 1) {
-    return "...";
+  if (maxChars <= 3) {
+    return ".".repeat(maxChars);
   }
   return `${input.slice(0, maxChars - 3)}...`;
 }
@@ -198,17 +202,20 @@ export function buildDeepPrompt(
   return buildSonnetPrompt(input, options);
 }
 
-export function parseHaikuResponse(raw: string): HaikuParseResult {
+export function parseHaikuResponse(
+  raw: string,
+  options?: ParseHaikuResponseOptions,
+): HaikuParseResult {
   const parsed = parseJsonObject(raw);
   if (!parsed.ok) {
     return {
       ok: false,
-      error: parsed.error,
+      error: normalizeHaikuParseError(parsed.error),
       fallback: createHaikuFallback(parsed.error.message),
     };
   }
 
-  const schemaResult = validateSchemaVersion(parsed.value.schemaVersion);
+  const schemaResult = validateHaikuSchemaVersion(parsed.value.schemaVersion, options);
   if (!schemaResult.ok) {
     return {
       ok: false,
@@ -217,23 +224,23 @@ export function parseHaikuResponse(raw: string): HaikuParseResult {
     };
   }
 
-  const aligned = parsed.value.aligned;
-  if (typeof aligned !== "string" || !VALID_ALIGNMENTS.has(aligned as Alignment)) {
+  if (!isAlignment(parsed.value.aligned)) {
     return {
       ok: false,
       error: createHaikuError("invalid_aligned", "Response aligned must be yes, no, or unclear"),
       fallback: createHaikuFallback("Invalid aligned value"),
     };
   }
+  const aligned = parsed.value.aligned;
 
-  const severity = parsed.value.severity;
-  if (typeof severity !== "string" || !VALID_SEVERITIES.has(severity as Severity)) {
+  if (!isSeverity(parsed.value.severity)) {
     return {
       ok: false,
       error: createHaikuError("invalid_severity", "Response severity must be low, medium, or high"),
       fallback: createHaikuFallback("Invalid severity value"),
     };
   }
+  const severity = parsed.value.severity;
 
   if (typeof parsed.value.reason !== "string" || typeof parsed.value.confidence !== "number") {
     return {
@@ -264,21 +271,21 @@ export function parseSonnetResponse(
 ): SonnetParseResult {
   const parsed = parseJsonObject(raw);
   if (!parsed.ok) {
-    return createSonnetFailure(parsed.error, options);
+    return createSonnetFailure(normalizeSonnetParseError(parsed.error), options);
   }
 
-  const schemaResult = validateSchemaVersion(parsed.value.schemaVersion);
+  const schemaResult = validateSonnetSchemaVersion(parsed.value.schemaVersion);
   if (!schemaResult.ok) {
     return createSonnetFailure(schemaResult.error, options);
   }
 
-  const verdict = parsed.value.verdict;
-  if (typeof verdict !== "string" || !VALID_SONNET_VERDICTS.has(verdict as DeepAction)) {
+  if (!isDeepAction(parsed.value.verdict)) {
     return createSonnetFailure(
       createSonnetError("invalid_verdict", "Response verdict must be proceed, modify, or block"),
       options,
     );
   }
+  const verdict = parsed.value.verdict;
 
   if (typeof parsed.value.reason !== "string" || typeof parsed.value.confidence !== "number") {
     return createSonnetFailure(
@@ -310,12 +317,27 @@ export function parseSonnetResponse(
 }
 
 export function parseRoutineResponse(raw: string): RoutineVerdict | null {
-  const result = parseHaikuResponse(raw);
+  const result = parseHaikuResponse(raw, { allowMissingSchemaVersion: true });
   return result.ok ? result.value : null;
 }
 
 export function parseDeepResponse(raw: string, lcmAvailable: boolean): DeepVerdict | null {
-  const result = parseSonnetResponse(raw, { lcmAvailable });
+  const stripped = stripMarkdownFences(raw);
+  let schemaVersion: unknown;
+
+  try {
+    const parsed = JSON.parse(stripped);
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      schemaVersion = parsed.schemaVersion;
+    }
+  } catch {
+    // parseSonnetResponse will handle invalid JSON and return null via the wrapper.
+  }
+
+  const result =
+    schemaVersion === undefined
+      ? parseLegacyDeepResponse(stripped, lcmAvailable)
+      : parseSonnetResponse(stripped, { lcmAvailable });
   return result.ok ? result.value : null;
 }
 
@@ -462,19 +484,93 @@ function clampConfidence(confidence: number): number {
   return Math.max(0, Math.min(1, confidence));
 }
 
-function validateSchemaVersion(
+function isAlignment(value: unknown): value is Alignment {
+  return typeof value === "string" && VALID_ALIGNMENTS.has(value as Alignment);
+}
+
+function isSeverity(value: unknown): value is Severity {
+  return typeof value === "string" && VALID_SEVERITIES.has(value as Severity);
+}
+
+function isDeepAction(value: unknown): value is DeepAction {
+  return typeof value === "string" && VALID_SONNET_VERDICTS.has(value as DeepAction);
+}
+
+function validateHaikuSchemaVersion(
   schemaVersion: unknown,
-): { ok: true } | { ok: false; error: HaikuParseError | SonnetParseError } {
+  options?: ParseHaikuResponseOptions,
+): { ok: true } | { ok: false; error: HaikuParseError } {
+  if (schemaVersion === undefined && options?.allowMissingSchemaVersion) {
+    return { ok: true };
+  }
+
   if (schemaVersion !== VERIFIER_SCHEMA_VERSION) {
     return {
       ok: false,
-      error: {
-        code: "schema_version_mismatch",
-        message: `Response schemaVersion must be ${VERIFIER_SCHEMA_VERSION}`,
-      },
+      error: createHaikuError(
+        "schema_version_mismatch",
+        `Response schemaVersion must be ${VERIFIER_SCHEMA_VERSION}`,
+      ),
     };
   }
   return { ok: true };
+}
+
+function validateSonnetSchemaVersion(
+  schemaVersion: unknown,
+): { ok: true } | { ok: false; error: SonnetParseError } {
+  if (schemaVersion !== VERIFIER_SCHEMA_VERSION) {
+    return {
+      ok: false,
+      error: createSonnetError(
+        "schema_version_mismatch",
+        `Response schemaVersion must be ${VERIFIER_SCHEMA_VERSION}`,
+      ),
+    };
+  }
+  return { ok: true };
+}
+
+function parseLegacyDeepResponse(raw: string, lcmAvailable: boolean): SonnetParseResult {
+  const parsed = parseJsonObject(raw);
+  if (!parsed.ok) {
+    return createSonnetFailure(normalizeSonnetParseError(parsed.error), { lcmAvailable });
+  }
+
+  if (!isDeepAction(parsed.value.verdict)) {
+    return createSonnetFailure(
+      createSonnetError("invalid_verdict", "Response verdict must be proceed, modify, or block"),
+      { lcmAvailable },
+    );
+  }
+
+  if (typeof parsed.value.reason !== "string" || typeof parsed.value.confidence !== "number") {
+    return createSonnetFailure(
+      createSonnetError(
+        "invalid_shape",
+        "Response must include string reason and numeric confidence",
+      ),
+      { lcmAvailable },
+    );
+  }
+
+  const suggestedCorrection =
+    typeof parsed.value.suggestedCorrection === "string" ? parsed.value.suggestedCorrection : null;
+
+  const confidence =
+    clampConfidence(parsed.value.confidence) *
+    (lcmAvailable ? 1 : LCM_UNAVAILABLE_CONFIDENCE_DISCOUNT);
+
+  return {
+    ok: true,
+    value: {
+      confidence,
+      reason: parsed.value.reason,
+      schemaVersion: VERIFIER_SCHEMA_VERSION,
+      suggestedCorrection,
+      verdict: parsed.value.verdict,
+    },
+  };
 }
 
 function parseJsonObject(
@@ -516,6 +612,20 @@ function createHaikuError(code: HaikuParseErrorCode, message: string): HaikuPars
   return { code, message };
 }
 
+function normalizeHaikuParseError(error: HaikuParseError | SonnetParseError): HaikuParseError {
+  return createHaikuError(
+    error.code === "invalid_json" ? "invalid_json" : "invalid_shape",
+    error.message,
+  );
+}
+
 function createSonnetError(code: SonnetParseErrorCode, message: string): SonnetParseError {
   return { code, message };
+}
+
+function normalizeSonnetParseError(error: HaikuParseError | SonnetParseError): SonnetParseError {
+  return createSonnetError(
+    error.code === "invalid_json" ? "invalid_json" : "invalid_shape",
+    error.message,
+  );
 }

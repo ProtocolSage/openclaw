@@ -144,4 +144,69 @@ describe("createVerifierCallModel", () => {
       agentDir: "/tmp/test",
     });
   });
+
+  // Targeted fix tests
+  it("throws on stream error event (logs handled by subsystem logger)", async () => {
+    const fakeModel = { provider: "openai-codex", id: "gpt-5.4", api: "openai" };
+    mockResolveModel.mockReturnValue({
+      model: fakeModel as never,
+      authStorage: { setRuntimeApiKey: vi.fn() } as never,
+      modelRegistry: {} as never,
+    });
+
+    const errorMsg = "Cannot read properties of undefined (reading 'map')";
+    mockStreamSimple.mockReturnValue({
+      [Symbol.asyncIterator]: async function* () {
+        yield { type: "text", text: "partial " };
+        yield { type: "error", errorMessage: errorMsg };
+      },
+    } as never);
+
+    const callModel = createVerifierCallModel({ agentDir: "/tmp/test-agent" });
+    await expect(
+      callModel("openai-codex/gpt-5.4", [{ role: "user", content: "test" }], {}),
+    ).rejects.toThrow(`Stream error: ${errorMsg}`);
+  });
+
+  it("warns on empty content (no text events), returns empty", async () => {
+    const fakeModel = { provider: "grok", id: "grok", api: "openai" };
+    mockResolveModel.mockReturnValue({
+      model: fakeModel as never,
+      authStorage: { setRuntimeApiKey: vi.fn() } as never,
+      modelRegistry: {} as never,
+    });
+
+    mockStreamSimple.mockReturnValue({
+      [Symbol.asyncIterator]: async function* () {
+        // No text
+      },
+    } as never);
+
+    const callModel = createVerifierCallModel({ agentDir: "/tmp/test-agent" });
+    const result = await callModel("grok", [{ role: "user", content: "test" }], {});
+
+    expect(result.content).toBe("");
+  });
+
+  it("ignores non-text/non-error events, appends text only", async () => {
+    const fakeModel = { provider: "test", id: "test", api: "test" };
+    mockResolveModel.mockReturnValue({
+      model: fakeModel as never,
+      authStorage: { setRuntimeApiKey: vi.fn() } as never,
+      modelRegistry: {} as never,
+    });
+
+    mockStreamSimple.mockReturnValue({
+      [Symbol.asyncIterator]: async function* () {
+        yield { type: "text", text: "Hello" };
+        yield { type: "metadata", foo: "ignored" };
+        yield { type: "text", text: " world" };
+      },
+    } as never);
+
+    const callModel = createVerifierCallModel({ agentDir: "/tmp" });
+    const result = await callModel("test/test", [{ role: "user", content: "test" }], {});
+
+    expect(result.content).toBe("Hello world");
+  });
 });
