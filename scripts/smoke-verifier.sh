@@ -26,6 +26,12 @@ if [[ "${1:-}" == "--quick" ]]; then
   QUICK=true
 fi
 
+# Detect WSL — gateway probes need extra settle time
+IS_WSL=false
+if grep -qi "microsoft\|wsl" /proc/version 2>/dev/null; then
+  IS_WSL=true
+fi
+
 PASS=0
 FAIL=0
 SKIP=0
@@ -60,6 +66,9 @@ skip_step() {
 
 echo "=== OpenClaw Verifier Smoke Test ==="
 echo "Logs: $SMOKE_DIR/${TIMESTAMP}-*.log"
+if [[ "$IS_WSL" == "true" ]]; then
+  echo -e "${YELLOW}WSL detected${NC} — gateway probes use extended settle time"
+fi
 echo ""
 
 # Step 1: Build
@@ -78,6 +87,10 @@ run_step "test:verifier" pnpm test -- src/verifier/
 if [[ "$QUICK" == "false" ]]; then
   # Check if gateway is running
   if ss -ltnp 2>/dev/null | grep -q ":18789"; then
+    if [[ "$IS_WSL" == "true" ]]; then
+      echo -e "  ${YELLOW}WSL: waiting 10s for gateway settle...${NC}"
+      sleep 10
+    fi
     run_step "gateway:status" pnpm openclaw gateway status --deep
   else
     skip_step "gateway:status (not running)"
