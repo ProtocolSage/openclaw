@@ -157,11 +157,15 @@ export function printResult(result: UpdateRunResult, opts: PrintResultOptions): 
   }
 
   if (result.before?.version || result.before?.sha) {
-    const before = result.before.version ?? result.before.sha?.slice(0, 8) ?? "";
+    const ver = result.before.version ?? "";
+    const sha = result.before.sha?.slice(0, 8);
+    const before = ver && sha ? `${ver} (${sha})` : ver || sha || "";
     defaultRuntime.log(`  Before: ${theme.muted(before)}`);
   }
   if (result.after?.version || result.after?.sha) {
-    const after = result.after.version ?? result.after.sha?.slice(0, 8) ?? "";
+    const ver = result.after.version ?? "";
+    const sha = result.after.sha?.slice(0, 8);
+    const after = ver && sha ? `${ver} (${sha})` : ver || sha || "";
     defaultRuntime.log(`  After: ${theme.muted(after)}`);
   }
 
