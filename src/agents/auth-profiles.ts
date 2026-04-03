@@ -28,6 +28,7 @@ export {
   loadAuthProfileStoreForRuntime,
   replaceRuntimeAuthProfileStoreSnapshots,
   loadAuthProfileStore,
+  migratePlaintextAuthProfileSecretsToVault,
   saveAuthProfileStore,
 } from "./auth-profiles/store.js";
 export type {
