@@ -21,6 +21,8 @@ export type ApiKeyCredential = {
   keyRef?: SecretRef;
   email?: string;
   displayName?: string;
+  /** Vault reference for the key, if stored in the credential vault. */
+  vaultRef?: string;
   /** Optional provider-specific metadata (e.g., account IDs, gateway IDs). */
   metadata?: Record<string, string>;
 };
@@ -38,6 +40,8 @@ export type TokenCredential = {
   expires?: number;
   email?: string;
   displayName?: string;
+  /** Vault reference for the token, if stored in the credential vault. */
+  vaultRef?: string;
 };
 
 export type OAuthCredential = OAuthCredentials & {
