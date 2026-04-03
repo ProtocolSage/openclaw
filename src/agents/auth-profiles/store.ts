@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import { resolveOAuthPath } from "../../config/paths.js";
 import { coerceSecretRef } from "../../config/types.secrets.js";
+import { normalizeSecretInput } from "../../utils/normalize-secret-input.js";
+import { isVaultRef, storeAuthProfileSecret } from "./vault.js";
 import { withFileLock } from "../../infra/file-lock.js";
 import { loadJsonFile, saveJsonFile } from "../../infra/json-file.js";
 import {
@@ -620,4 +622,101 @@ export function saveAuthProfileStore(store: AuthProfileStore, agentDir?: string)
   if (runtimeAuthStoreSnapshots.has(runtimeKey)) {
     runtimeAuthStoreSnapshots.set(runtimeKey, cloneAuthProfileStore(payload));
   }
+}
+
+export type AuthProfileVaultMigrationResult = {
+  scanned: number;
+  migrated: number;
+  failed: number;
+  changed: boolean;
+  details: string[];
+};
+
+export function migratePlaintextAuthProfileSecretsToVault(params?: {
+  agentDir?: string;
+  dryRun?: boolean;
+}): AuthProfileVaultMigrationResult {
+  const dryRun = params?.dryRun === true;
+  const store = ensureAuthProfileStore(params?.agentDir);
+  let scanned = 0;
+  let migrated = 0;
+  let failed = 0;
+  let changed = false;
+  const details: string[] = [];
+
+  for (const [profileId, credential] of Object.entries(store.profiles)) {
+    if (credential.type === "api_key") {
+      const raw = normalizeSecretInput(credential.key);
+      if (!raw) {
+        continue;
+      }
+      if (isVaultRef(raw)) {
+        if (!dryRun && credential.vaultRef !== raw) {
+          credential.vaultRef = raw;
+          changed = true;
+        }
+        continue;
+      }
+      scanned++;
+      if (dryRun) {
+        details.push(`pending ${profileId}:key`);
+        continue;
+      }
+      const result = storeAuthProfileSecret({
+        profileId,
+        field: "key",
+        value: raw,
+      });
+      if (!result.ok) {
+        failed++;
+        details.push(`failed ${profileId}:key (${result.error})`);
+        continue;
+      }
+      credential.key = result.vaultRef;
+      credential.vaultRef = result.vaultRef;
+      migrated++;
+      changed = true;
+      details.push(`migrated ${profileId}:key`);
+      continue;
+    }
+    if (credential.type === "token") {
+      const raw = normalizeSecretInput(credential.token);
+      if (!raw) {
+        continue;
+      }
+      if (isVaultRef(raw)) {
+        if (!dryRun && credential.vaultRef !== raw) {
+          credential.vaultRef = raw;
+          changed = true;
+        }
+        continue;
+      }
+      scanned++;
+      if (dryRun) {
+        details.push(`pending ${profileId}:token`);
+        continue;
+      }
+      const result = storeAuthProfileSecret({
+        profileId,
+        field: "token",
+        value: raw,
+      });
+      if (!result.ok) {
+        failed++;
+        details.push(`failed ${profileId}:token (${result.error})`);
+        continue;
+      }
+      credential.token = result.vaultRef;
+      credential.vaultRef = result.vaultRef;
+      migrated++;
+      changed = true;
+      details.push(`migrated ${profileId}:token`);
+    }
+  }
+
+  if (!dryRun && changed) {
+    saveAuthProfileStore(store, params?.agentDir);
+  }
+
+  return { scanned, migrated, failed, changed, details };
 }
