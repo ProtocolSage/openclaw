@@ -239,6 +239,41 @@ describe("agent event handler", () => {
     nowSpy?.mockRestore();
   });
 
+  it("sanitizes chat error payloads before broadcasting to clients", () => {
+    const { broadcast, nodeSendToSession, chatRunState, handler, nowSpy } = createHarness({
+      now: 2_050,
+    });
+    chatRunState.registry.add("run-init-error", {
+      sessionKey: "session-init-error",
+      clientRunId: "client-init-error",
+    });
+
+    handler({
+      runId: "run-init-error",
+      seq: 1,
+      stream: "lifecycle",
+      ts: Date.now(),
+      data: {
+        phase: "error",
+        error:
+          'FailoverError: {"type":"system","subtype":"init","cwd":"/Users/pablo/.openclaw/workspace","session_id":"abc123","tools":["Task","Bash"]}',
+      },
+    });
+
+    const chatCalls = chatBroadcastCalls(broadcast);
+    expect(chatCalls).toHaveLength(1);
+    const payload = chatCalls[0]?.[1] as {
+      state?: string;
+      errorMessage?: string;
+    };
+    expect(payload.state).toBe("error");
+    expect(payload.errorMessage).toBe(
+      "CLI agent failed during initialization before producing a response. Check that the configured provider CLI is installed, logged in, and can run outside OpenClaw.",
+    );
+    expect(sessionChatCalls(nodeSendToSession)).toHaveLength(1);
+    nowSpy?.mockRestore();
+  });
+
   it("suppresses NO_REPLY lead fragments and does not leak NO in final chat message", () => {
     const { broadcast, nodeSendToSession, chatRunState, handler, nowSpy } = createHarness({
       now: 2_100,

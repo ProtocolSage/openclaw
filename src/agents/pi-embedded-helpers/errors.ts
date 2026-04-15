@@ -3,6 +3,7 @@ import type { OpenClawConfig } from "../../config/config.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
   extractLeadingHttpStatus,
+  formatCliInitPayloadErrorForUi,
   formatRawAssistantErrorForUi,
   isCloudflareOrHtmlErrorPage,
   parseApiErrorInfo,
@@ -10,6 +11,7 @@ import {
 } from "../../shared/assistant-error-format.js";
 export {
   extractLeadingHttpStatus,
+  formatCliInitPayloadErrorForUi,
   formatRawAssistantErrorForUi,
   isCloudflareOrHtmlErrorPage,
   parseApiErrorInfo,
@@ -972,6 +974,11 @@ export function sanitizeUserFacingText(text: unknown, opts?: { errorContext?: bo
   // Only apply error-pattern rewrites when the caller knows this text is an error payload.
   // Otherwise we risk swallowing legitimate assistant text that merely *mentions* these errors.
   if (errorContext) {
+    const cliInitCopy = formatCliInitPayloadErrorForUi(trimmed);
+    if (cliInitCopy) {
+      return cliInitCopy;
+    }
+
     const execDeniedMessage = formatExecDeniedUserMessage(trimmed);
     if (execDeniedMessage) {
       return execDeniedMessage;

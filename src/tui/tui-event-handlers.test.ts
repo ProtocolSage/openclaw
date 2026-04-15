@@ -571,6 +571,24 @@ describe("tui-event-handlers: handleAgentEvent", () => {
     expect(chatLog.dropAssistant).not.toHaveBeenCalledWith("run-error-envelope");
   });
 
+  it("sanitizes chat error events before rendering the system log", () => {
+    const { state, chatLog, handleChatEvent } = createHandlersHarness({
+      state: { activeChatRunId: null },
+    });
+
+    handleChatEvent({
+      runId: "run-error-state",
+      sessionKey: state.currentSessionKey,
+      state: "error",
+      errorMessage:
+        'FailoverError: {"type":"system","subtype":"init","cwd":"/Users/pablo/.openclaw/workspace","session_id":"abc123","tools":["Task","Bash"]}',
+    });
+
+    expect(chatLog.addSystem).toHaveBeenCalledWith(
+      "run error: CLI agent failed during initialization before producing a response. Check that the configured provider CLI is installed, logged in, and can run outside OpenClaw.",
+    );
+  });
+
   it("drops streaming assistant when chat final has no message", () => {
     const { state, chatLog, handleChatEvent } = createHandlersHarness({
       state: { activeChatRunId: null },

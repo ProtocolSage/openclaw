@@ -48,6 +48,21 @@ function isErrorPayloadObject(payload: unknown): payload is ErrorPayload {
   return false;
 }
 
+function isCliInitPayloadObject(payload: unknown): payload is ErrorPayload {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    return false;
+  }
+  const record = payload as ErrorPayload;
+  return (
+    record.type === "system" &&
+    record.subtype === "init" &&
+    (typeof record.cwd === "string" ||
+      typeof record.session_id === "string" ||
+      typeof record.sessionId === "string" ||
+      Array.isArray(record.tools))
+  );
+}
+
 export function parseApiErrorPayload(raw?: string): ErrorPayload | null {
   if (!raw) {
     return null;
@@ -74,6 +89,45 @@ export function parseApiErrorPayload(raw?: string): ErrorPayload | null {
     }
   }
   return null;
+}
+
+function parseCliInitPayload(raw?: string): ErrorPayload | null {
+  if (!raw) {
+    return null;
+  }
+  const trimmed = raw.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const candidates = [trimmed];
+  const prefixedMatch = trimmed.match(/^(?:[a-z][\w-]*error)[:\s-]+([\s\S]+)$/i);
+  if (prefixedMatch?.[1]) {
+    candidates.push(prefixedMatch[1].trim());
+  }
+  for (const candidate of candidates) {
+    if (!candidate.startsWith("{") || !candidate.endsWith("}")) {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(candidate) as unknown;
+      if (isCliInitPayloadObject(parsed)) {
+        return parsed;
+      }
+    } catch {
+      // ignore parse errors
+    }
+  }
+  return null;
+}
+
+export function formatCliInitPayloadErrorForUi(raw?: string): string | null {
+  if (!parseCliInitPayload(raw)) {
+    return null;
+  }
+  return (
+    "CLI agent failed during initialization before producing a response. " +
+    "Check that the configured provider CLI is installed, logged in, and can run outside OpenClaw."
+  );
 }
 
 export function extractLeadingHttpStatus(raw: string): { code: number; rest: string } | null {
@@ -168,6 +222,11 @@ export function formatRawAssistantErrorForUi(raw?: string): string {
   const trimmed = (raw ?? "").trim();
   if (!trimmed) {
     return "LLM request failed with an unknown error.";
+  }
+
+  const cliInitCopy = formatCliInitPayloadErrorForUi(trimmed);
+  if (cliInitCopy) {
+    return cliInitCopy;
   }
 
   const leadingStatus = extractLeadingHttpStatus(trimmed);

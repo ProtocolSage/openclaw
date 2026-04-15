@@ -216,6 +216,16 @@ describe("formatAssistantErrorText", () => {
 });
 
 describe("formatRawAssistantErrorForUi", () => {
+  it("sanitizes CLI init payloads into friendly copy", () => {
+    expect(
+      formatRawAssistantErrorForUi(
+        'FailoverError: {"type":"system","subtype":"init","cwd":"/Users/pablo/.openclaw/workspace","session_id":"abc123","tools":["Task","Bash"]}',
+      ),
+    ).toBe(
+      "CLI agent failed during initialization before producing a response. Check that the configured provider CLI is installed, logged in, and can run outside OpenClaw.",
+    );
+  });
+
   it("renders HTTP code + type + message from Anthropic payloads", () => {
     const text = formatRawAssistantErrorForUi(
       '429 {"type":"error","error":{"type":"rate_limit_error","message":"Rate limited."},"request_id":"req_123"}',
