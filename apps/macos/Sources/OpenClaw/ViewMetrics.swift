@@ -9,7 +9,7 @@ private struct ViewWidthPreferenceKey: PreferenceKey {
 }
 
 extension View {
-    func onWidthChange(_ onChange: @escaping (CGFloat) -> Void) -> some View {
+    func onWidthChange(_ onChange: @escaping @Sendable (CGFloat) -> Void) -> some View {
         self.background(
             GeometryReader { proxy in
                 Color.clear.preference(key: ViewWidthPreferenceKey.self, value: proxy.size.width)

@@ -1,3 +1,4 @@
+import ElevenLabsKit
 import XCTest
 @testable import OpenClawKit
 

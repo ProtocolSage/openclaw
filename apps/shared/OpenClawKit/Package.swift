@@ -6,7 +6,7 @@ let package = Package(
     name: "OpenClawKit",
     platforms: [
         .iOS(.v18),
-        .macOS(.v15),
+        .macOS(.v14),
     ],
     products: [
         .library(name: "OpenClawProtocol", targets: ["OpenClawProtocol"]),
@@ -15,7 +15,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/steipete/ElevenLabsKit", exact: "0.1.0"),
-        .package(url: "https://github.com/gonzalezreal/textual", exact: "0.3.1"),
+        .package(path: "../../macos/Vendor/textual"),
     ],
     targets: [
         .target(
@@ -28,7 +28,6 @@ let package = Package(
             name: "OpenClawKit",
             dependencies: [
                 "OpenClawProtocol",
-                .product(name: "ElevenLabsKit", package: "ElevenLabsKit"),
             ],
             path: "Sources/OpenClawKit",
             resources: [
@@ -52,7 +51,11 @@ let package = Package(
             ]),
         .testTarget(
             name: "OpenClawKitTests",
-            dependencies: ["OpenClawKit", "OpenClawChatUI"],
+            dependencies: [
+                "OpenClawKit",
+                "OpenClawChatUI",
+                .product(name: "ElevenLabsKit", package: "ElevenLabsKit"),
+            ],
             path: "Tests/OpenClawKitTests",
             swiftSettings: [
                 .enableUpcomingFeature("StrictConcurrency"),

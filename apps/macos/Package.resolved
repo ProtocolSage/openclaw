@@ -1,5 +1,5 @@
 {
-  "originHash" : "1c9c9d251b760ed3234ecff741a88eb4bf42315ad6f50ac7392b187cf226c16c",
+  "originHash" : "a0718557e3103f4dc75f00de621740f267ef977312f5767beeec648ca0abe392",
   "pins" : [
     {
       "identity" : "axorcist",
@@ -20,21 +20,12 @@
       }
     },
     {
-      "identity" : "elevenlabskit",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/steipete/ElevenLabsKit",
-      "state" : {
-        "revision" : "c8679fbd37416a8780fe43be88a497ff16209e2d",
-        "version" : "0.1.0"
-      }
-    },
-    {
       "identity" : "menubarextraaccess",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/orchetect/MenuBarExtraAccess",
       "state" : {
-        "revision" : "707dff6f55217b3ef5b6be84ced3e83511d4df5c",
-        "version" : "1.2.2"
+        "revision" : "9ff6cbb0ba373527a19832a0791cea4a41ad7a6f",
+        "version" : "1.1.3"
       }
     },
     {
@@ -116,15 +107,6 @@
       "state" : {
         "revision" : "0b5c2cfaaec8d6193db206f675048eeb5ce95f71",
         "version" : "0.1.0"
-      }
-    },
-    {
-      "identity" : "textual",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/gonzalezreal/textual",
-      "state" : {
-        "revision" : "5b06b811c0f5313b6b84bbef98c635a630638c38",
-        "version" : "0.3.1"
       }
     }
   ],

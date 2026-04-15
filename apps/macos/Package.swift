@@ -6,20 +6,20 @@ import PackageDescription
 let package = Package(
     name: "OpenClaw",
     platforms: [
-        .macOS(.v15),
+        .macOS(.v14),
     ],
     products: [
         .library(name: "OpenClawIPC", targets: ["OpenClawIPC"]),
         .library(name: "OpenClawDiscovery", targets: ["OpenClawDiscovery"]),
-        .executable(name: "OpenClaw", targets: ["OpenClaw"]),
         .executable(name: "openclaw-mac", targets: ["OpenClawMacCLI"]),
     ],
     dependencies: [
-        .package(url: "https://github.com/orchetect/MenuBarExtraAccess", exact: "1.2.2"),
+        .package(url: "https://github.com/orchetect/MenuBarExtraAccess", exact: "1.1.3"),
         .package(url: "https://github.com/swiftlang/swift-subprocess.git", from: "0.4.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.10.1"),
         .package(url: "https://github.com/sparkle-project/Sparkle", from: "2.9.0"),
         .package(url: "https://github.com/steipete/Peekaboo.git", branch: "main"),
+        .package(path: "Vendor/textual"),
         .package(path: "../shared/OpenClawKit"),
         .package(path: "../../Swabble"),
     ],
@@ -34,6 +34,7 @@ let package = Package(
             name: "OpenClawDiscovery",
             dependencies: [
                 .product(name: "OpenClawKit", package: "OpenClawKit"),
+                .product(name: "Textual", package: "textual"),
             ],
             path: "Sources/OpenClawDiscovery",
             swiftSettings: [
@@ -44,6 +45,7 @@ let package = Package(
             dependencies: [
                 "OpenClawIPC",
                 "OpenClawDiscovery",
+                .product(name: "Textual", package: "textual"),
                 .product(name: "OpenClawKit", package: "OpenClawKit"),
                 .product(name: "OpenClawChatUI", package: "OpenClawKit"),
                 .product(name: "OpenClawProtocol", package: "OpenClawKit"),
@@ -69,6 +71,7 @@ let package = Package(
             name: "OpenClawMacCLI",
             dependencies: [
                 "OpenClawDiscovery",
+                .product(name: "Textual", package: "textual"),
                 .product(name: "OpenClawKit", package: "OpenClawKit"),
                 .product(name: "OpenClawProtocol", package: "OpenClawKit"),
             ],
@@ -82,6 +85,7 @@ let package = Package(
                 "OpenClawIPC",
                 "OpenClaw",
                 "OpenClawDiscovery",
+                .product(name: "Textual", package: "textual"),
                 .product(name: "OpenClawProtocol", package: "OpenClawKit"),
                 .product(name: "SwabbleKit", package: "swabble"),
             ],
