@@ -4,7 +4,6 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
-import semverSatisfies from "semver/functions/satisfies.js";
 import { resolveNpmRunner } from "./npm-runner.mjs";
 
 function readJson(filePath) {
@@ -58,19 +57,15 @@ function readInstalledDependencyVersion(nodeModulesDir, depName) {
   return typeof version === "string" ? version : null;
 }
 
-function dependencyVersionSatisfied(spec, installedVersion) {
-  return semverSatisfies(installedVersion, spec, { includePrerelease: false });
-}
-
 function collectInstalledRuntimeClosure(rootNodeModulesDir, dependencySpecs) {
   const packageCache = new Map();
   const closure = new Set();
-  const queue = Object.entries(dependencySpecs);
+  const queue = Object.keys(dependencySpecs);
 
   while (queue.length > 0) {
-    const [depName, spec] = queue.shift();
+    const depName = queue.shift();
     const installedVersion = readInstalledDependencyVersion(rootNodeModulesDir, depName);
-    if (installedVersion === null || !dependencyVersionSatisfied(spec, installedVersion)) {
+    if (installedVersion === null) {
       return null;
     }
     if (closure.has(depName)) {
@@ -85,11 +80,11 @@ function collectInstalledRuntimeClosure(rootNodeModulesDir, dependencySpecs) {
     packageCache.set(depName, packageJson);
     closure.add(depName);
 
-    for (const [childName, childSpec] of Object.entries(packageJson.dependencies ?? {})) {
-      queue.push([childName, childSpec]);
+    for (const childName of Object.keys(packageJson.dependencies ?? {})) {
+      queue.push(childName);
     }
-    for (const [childName, childSpec] of Object.entries(packageJson.optionalDependencies ?? {})) {
-      queue.push([childName, childSpec]);
+    for (const childName of Object.keys(packageJson.optionalDependencies ?? {})) {
+      queue.push(childName);
     }
   }
 
