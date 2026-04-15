@@ -3,6 +3,7 @@ import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { createSubsystemLogger } from "../../logging/subsystem.js";
 import {
   extractLeadingHttpStatus,
+  formatCliInitPayloadErrorForUi,
   formatRawAssistantErrorForUi,
   isCloudflareOrHtmlErrorPage,
   parseApiErrorInfo,
@@ -13,6 +14,7 @@ import {
 } from "../../shared/string-coerce.js";
 export {
   extractLeadingHttpStatus,
+  formatCliInitPayloadErrorForUi,
   formatRawAssistantErrorForUi,
   isCloudflareOrHtmlErrorPage,
   parseApiErrorInfo,
@@ -669,7 +671,9 @@ function isOpenRouterKeyLimitExceededError(raw: string, provider?: string): bool
 }
 
 function isExactUnknownNoDetailsError(raw: string): boolean {
-  return normalizeOptionalLowercaseString(raw)?.trim() === "unknown error (no error details in response)";
+  return (
+    normalizeOptionalLowercaseString(raw)?.trim() === "unknown error (no error details in response)"
+  );
 }
 
 function classifyFailoverClassificationFromMessage(

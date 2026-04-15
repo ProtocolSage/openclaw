@@ -108,6 +108,14 @@ describe("sanitizeUserFacingText", () => {
     );
   });
 
+  it("sanitizes CLI init payload errors with errorContext", () => {
+    const raw =
+      'FailoverError: {"type":"system","subtype":"init","cwd":"/Users/pablo/.openclaw/workspace","session_id":"abc123","tools":["Task","Bash"]}';
+    expect(sanitizeUserFacingText(raw, { errorContext: true })).toBe(
+      "CLI agent failed during initialization before producing a response. Check that the configured provider CLI is installed, logged in, and can run outside OpenClaw.",
+    );
+  });
+
   it("sanitizes Codex error-prefixed API payloads without explicit errorContext", () => {
     const raw =
       'Codex error: {"type":"error","error":{"type":"server_error","message":"Something exploded"},"sequence_number":2}';

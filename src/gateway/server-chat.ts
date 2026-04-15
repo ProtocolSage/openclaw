@@ -1,3 +1,4 @@
+import { sanitizeUserFacingText } from "../agents/pi-embedded-helpers/errors.js";
 import { DEFAULT_HEARTBEAT_ACK_MAX_CHARS, stripHeartbeatToken } from "../auto-reply/heartbeat.js";
 import { normalizeVerboseLevel } from "../auto-reply/thinking.js";
 import {
@@ -848,7 +849,15 @@ export function createAgentEventHandler({
       sessionKey,
       seq,
       state: "error" as const,
-      errorMessage: error ? formatForLog(error) : undefined,
+      errorMessage: (() => {
+        const rawErrorMessage = error ? formatForLog(error) : undefined;
+        if (!rawErrorMessage) {
+          return undefined;
+        }
+        return (
+          sanitizeUserFacingText(rawErrorMessage, { errorContext: true }).trim() || rawErrorMessage
+        );
+      })(),
       ...(errorKind && { errorKind }),
     };
     broadcast("chat", payload);

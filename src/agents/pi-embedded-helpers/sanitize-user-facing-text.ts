@@ -1,5 +1,6 @@
 import {
   extractLeadingHttpStatus,
+  formatCliInitPayloadErrorForUi,
   formatRawAssistantErrorForUi,
   isCloudflareOrHtmlErrorPage,
   parseApiErrorInfo,
@@ -389,6 +390,11 @@ export function sanitizeUserFacingText(text: unknown, opts?: { errorContext?: bo
   }
 
   if (errorContext) {
+    const cliInitCopy = formatCliInitPayloadErrorForUi(trimmed);
+    if (cliInitCopy) {
+      return cliInitCopy;
+    }
+
     const execDeniedMessage = formatExecDeniedUserMessage(trimmed);
     if (execDeniedMessage) {
       return execDeniedMessage;
