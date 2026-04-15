@@ -276,14 +276,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { await HealthStore.shared.refresh(onDemand: true) }
         Task { await PortGuardian.shared.sweep(mode: AppStateStore.shared.connectionMode) }
         Task { await PeekabooBridgeHostCoordinator.shared.setEnabled(AppStateStore.shared.peekabooBridgeEnabled) }
-        self.scheduleFirstRunOnboardingIfNeeded()
+        let didScheduleOnboarding = self.scheduleFirstRunOnboardingIfNeeded()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             CLIInstallPrompter.shared.checkAndPromptIfNeeded(reason: "launch")
         }
 
-        // Developer/testing helper: auto-open chat when launched with --chat (or legacy --webchat).
-        if CommandLine.arguments.contains("--chat") || CommandLine.arguments.contains("--webchat") {
-            self.webChatAutoLogger.debug("Auto-opening chat via CLI flag")
+        // Developer/testing helper: auto-open a visible window in attach-only flows when
+        // onboarding is not already going to do that for us.
+        if self.shouldAutoOpenChatWindow(didScheduleOnboarding: didScheduleOnboarding) {
+            self.webChatAutoLogger.debug("Auto-opening chat window on launch")
             Task { @MainActor in
                 let sessionKey = await WebChatManager.shared.preferredSessionKey()
                 WebChatManager.shared.show(sessionKey: sessionKey)
@@ -308,13 +309,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @MainActor
-    private func scheduleFirstRunOnboardingIfNeeded() {
-        let seenVersion = UserDefaults.standard.integer(forKey: onboardingVersionKey)
-        let shouldShow = seenVersion < currentOnboardingVersion || !AppStateStore.shared.onboardingSeen
-        guard shouldShow else { return }
+    private func scheduleFirstRunOnboardingIfNeeded() -> Bool {
+        let shouldShow = self.shouldShowOnboardingOnLaunch()
+        guard shouldShow else { return false }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             OnboardingController.shared.show()
         }
+        return true
+    }
+
+    @MainActor
+    private func shouldShowOnboardingOnLaunch() -> Bool {
+        let seenVersion = UserDefaults.standard.integer(forKey: onboardingVersionKey)
+        return seenVersion < currentOnboardingVersion || !AppStateStore.shared.onboardingSeen
+    }
+
+    private func shouldAutoOpenChatWindow(didScheduleOnboarding: Bool) -> Bool {
+        guard !didScheduleOnboarding else { return false }
+
+        let args = CommandLine.arguments
+        return args.contains("--chat")
+            || args.contains("--webchat")
+            || args.contains("--attach-only")
     }
 
     private func isDuplicateInstance() -> Bool {

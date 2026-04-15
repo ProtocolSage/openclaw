@@ -278,7 +278,7 @@ final class CanvasWindowController: NSWindowController, WKNavigationDelegate, NS
     }
 
     func snapshot(to outPath: String?) async throws -> String {
-        let image: NSImage = try await withCheckedThrowingContinuation { cont in
+        let png: Data = try await withCheckedThrowingContinuation { cont in
             self.webView.takeSnapshot(with: nil) { image, error in
                 if let error {
                     cont.resume(throwing: error)
@@ -290,17 +290,17 @@ final class CanvasWindowController: NSWindowController, WKNavigationDelegate, NS
                     ]))
                     return
                 }
-                cont.resume(returning: image)
+                guard let tiff = image.tiffRepresentation,
+                      let rep = NSBitmapImageRep(data: tiff),
+                      let png = rep.representation(using: .png, properties: [:])
+                else {
+                    cont.resume(throwing: NSError(domain: "Canvas", code: 12, userInfo: [
+                        NSLocalizedDescriptionKey: "failed to encode png",
+                    ]))
+                    return
+                }
+                cont.resume(returning: png)
             }
-        }
-
-        guard let tiff = image.tiffRepresentation,
-              let rep = NSBitmapImageRep(data: tiff),
-              let png = rep.representation(using: .png, properties: [:])
-        else {
-            throw NSError(domain: "Canvas", code: 12, userInfo: [
-                NSLocalizedDescriptionKey: "failed to encode png",
-            ])
         }
 
         let path: String

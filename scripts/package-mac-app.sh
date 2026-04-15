@@ -36,6 +36,18 @@ if [[ "$BUNDLE_ID" == *.debug ]]; then
   SPARKLE_FEED_URL=""
   AUTO_CHECKS=false
 fi
+SWIFT_TOOLCHAIN_PLIST="${HOME}/Library/Developer/Toolchains/swift-6.2-RELEASE.xctoolchain/Info.plist"
+SWIFT_62_BIN="${HOME}/Library/Developer/Toolchains/swift-6.2-RELEASE.xctoolchain/usr/bin/swift"
+
+if [[ -z "${TOOLCHAINS:-}" ]] && plutil -p "${SWIFT_TOOLCHAIN_PLIST}" &>/dev/null; then
+  export TOOLCHAINS="org.swift.6200202509111a"
+fi
+
+if [[ -n "${TOOLCHAINS:-}" && -x "${SWIFT_62_BIN}" ]]; then
+  SWIFT_BIN="${SWIFT_62_BIN}"
+else
+  SWIFT_BIN="$(command -v swift)"
+fi
 
 sparkle_canonical_build_from_version() {
   node --import tsx "$ROOT_DIR/scripts/sparkle-build.ts" canonical-build "$1"
@@ -158,7 +170,7 @@ cd "$ROOT_DIR/apps/macos"
 echo "🔨 Building $PRODUCT ($BUILD_CONFIG) [${BUILD_ARCHS[*]}]"
 for arch in "${BUILD_ARCHS[@]}"; do
   BUILD_PATH="$(build_path_for_arch "$arch")"
-  swift build -c "$BUILD_CONFIG" --product "$PRODUCT" --build-path "$BUILD_PATH" --arch "$arch" -Xlinker -rpath -Xlinker @executable_path/../Frameworks
+  "$SWIFT_BIN" build -c "$BUILD_CONFIG" --product "$PRODUCT" --build-path "$BUILD_PATH" --arch "$arch" -Xlinker -rpath -Xlinker @executable_path/../Frameworks
 done
 
 BIN_PRIMARY="$(bin_for_arch "$PRIMARY_ARCH")"

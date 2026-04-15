@@ -54,6 +54,7 @@ apps/ios/.swiftpm/
 apps/ios/.derivedData/
 apps/ios/.local-signing.xcconfig
 vendor/
+!apps/macos/Vendor/textual/
 apps/ios/Clawdbot.xcodeproj/
 apps/ios/Clawdbot.xcodeproj/**
 apps/macos/.build/**
